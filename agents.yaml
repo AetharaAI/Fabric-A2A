@@ -1,0 +1,1022 @@
+# Fabric MCP Server - Agent Registry Configuration
+# This file defines the agents available in the Fabric gateway
+# AND the built-in tool inventory
+
+tools:
+  # ============================================================================
+  # BUILT-IN TOOLS (Native Tool Inventory)
+  # These are executed directly by Fabric - no external agent needed
+  # ============================================================================
+  
+  # --- File System Tools ---
+  - tool_id: io.read_file
+    display_name: Read File
+    description: Read contents of a text file
+    provider: builtin
+    category: io
+    capabilities:
+      - name: read
+        description: Read file contents with optional line limits
+        streaming: false
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Absolute or relative file path
+            max_lines:
+              type: integer
+              description: Maximum lines to read
+              default: null
+            encoding:
+              type: string
+              description: File encoding
+              default: utf-8
+          required: [path]
+        output_schema:
+          type: object
+          properties:
+            content:
+              type: string
+              description: File contents
+            line_count:
+              type: integer
+            truncated:
+              type: boolean
+        max_timeout_ms: 10000
+
+  - tool_id: io.write_file
+    display_name: Write File
+    description: Write content to a file (creates directories if needed)
+    provider: builtin
+    category: io
+    capabilities:
+      - name: write
+        description: Write text to a file
+        streaming: false
+        input_schema:
+          type: object
+          properties:
+            path:
+              type: string
+            content:
+              type: string
+            append:
+              type: boolean
+              default: false
+          required: [path, content]
+        output_schema:
+          type: object
+          properties:
+            bytes_written:
+              type: integer
+            path:
+              type: string
+        max_timeout_ms: 10000
+
+  - tool_id: io.list_directory
+    display_name: List Directory
+    description: List files and directories
+    provider: builtin
+    category: io
+    capabilities:
+      - name: list
+        description: List directory contents with filtering
+        input_schema:
+          type: object
+          properties:
+            path:
+              type: string
+              default: .
+            recursive:
+              type: boolean
+              default: false
+            pattern:
+              type: string
+              description: Glob pattern filter (e.g., '*.py')
+          required: []
+        output_schema:
+          type: object
+          properties:
+            entries:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  type:
+                    type: string
+                    enum: [file, directory]
+                  size:
+                    type: integer
+                  modified:
+                    type: string
+        max_timeout_ms: 5000
+
+  - tool_id: io.search_files
+    display_name: Search Files
+    description: Search file contents using regex
+    provider: builtin
+    category: io
+    capabilities:
+      - name: search
+        streaming: true
+        input_schema:
+          type: object
+          properties:
+            path:
+              type: string
+              description: Directory to search
+            pattern:
+              type: string
+              description: Regex pattern to search for
+            file_pattern:
+              type: string
+              description: Restrict to files matching glob pattern
+          required: [path, pattern]
+        output_schema:
+          type: object
+          properties:
+            matches:
+              type: array
+        max_timeout_ms: 30000
+
+  # --- Web Tools ---
+  - tool_id: web.http_request
+    display_name: HTTP Request
+    description: Make HTTP requests to any URL
+    provider: builtin
+    category: web
+    capabilities:
+      - name: request
+        description: Perform HTTP GET, POST, PUT, DELETE, PATCH
+        streaming: false
+        input_schema:
+          type: object
+          properties:
+            url:
+              type: string
+            method:
+              type: string
+              enum: [GET, POST, PUT, DELETE, PATCH]
+              default: GET
+            headers:
+              type: object
+            body:
+              type: string
+            timeout:
+              type: integer
+              default: 30000
+          required: [url]
+        output_schema:
+          type: object
+          properties:
+            status_code:
+              type: integer
+            headers:
+              type: object
+            body:
+              type: string
+            elapsed_ms:
+              type: integer
+        max_timeout_ms: 60000
+
+  - tool_id: web.fetch_page
+    display_name: Fetch Web Page
+    description: Fetch and extract readable content from web pages
+    provider: builtin
+    category: web
+    capabilities:
+      - name: fetch
+        description: Extract article text, title, and metadata from HTML
+        input_schema:
+          type: object
+          properties:
+            url:
+              type: string
+            extract_text:
+              type: boolean
+              default: true
+            max_length:
+              type: integer
+              description: Maximum characters to return
+              default: 50000
+          required: [url]
+        output_schema:
+          type: object
+          properties:
+            title:
+              type: string
+            text:
+              type: string
+            links:
+              type: array
+            metadata:
+              type: object
+        max_timeout_ms: 30000
+
+  - tool_id: web.parse_url
+    display_name: Parse URL
+    description: Parse and extract components from URLs
+    provider: builtin
+    category: web
+    capabilities:
+      - name: parse
+        description: Break down URL into components
+        input_schema:
+          type: object
+          properties:
+            url:
+              type: string
+          required: [url]
+        output_schema:
+          type: object
+          properties:
+            scheme:
+              type: string
+            netloc:
+              type: string
+            path:
+              type: string
+            params:
+              type: string
+            query:
+              type: object
+            fragment:
+              type: string
+        max_timeout_ms: 1000
+
+  # --- Math Tools ---
+  - tool_id: math.calculate
+    display_name: Calculator
+    description: Perform mathematical calculations safely
+    provider: builtin
+    category: math
+    capabilities:
+      - name: eval
+        description: Evaluate mathematical expressions safely
+        input_schema:
+          type: object
+          properties:
+            expression:
+              type: string
+              description: Mathematical expression (e.g., "(2 + 3) * 4")
+            precision:
+              type: integer
+              default: 10
+          required: [expression]
+        output_schema:
+          type: object
+          properties:
+            result:
+              type: number
+            expression:
+              type: string
+        max_timeout_ms: 5000
+
+  - tool_id: math.statistics
+    display_name: Statistics
+    description: Calculate statistical measures on datasets
+    provider: builtin
+    category: math
+    capabilities:
+      - name: analyze
+        description: Calculate mean, median, stddev, min, max
+        input_schema:
+          type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: number
+            measures:
+              type: array
+              items:
+                type: string
+                enum: [mean, median, stddev, min, max, count, sum]
+              default: [mean, median, stddev, min, max]
+          required: [data]
+        output_schema:
+          type: object
+          properties:
+            mean:
+              type: number
+            median:
+              type: number
+            stddev:
+              type: number
+            min:
+              type: number
+            max:
+              type: number
+            count:
+              type: integer
+            sum:
+              type: number
+        max_timeout_ms: 10000
+
+  # --- Text Processing Tools ---
+  - tool_id: text.regex
+    display_name: Regex Operations
+    description: Pattern matching and text extraction with regex
+    provider: builtin
+    category: text
+    capabilities:
+      - name: match
+        description: Find all matches of a regex pattern
+        input_schema:
+          type: object
+          properties:
+            text:
+              type: string
+            pattern:
+              type: string
+            flags:
+              type: array
+              items:
+                type: string
+                enum: [i, m, s, x]
+          required: [text, pattern]
+        output_schema:
+          type: object
+          properties:
+            matches:
+              type: array
+            groups:
+              type: array
+            count:
+              type: integer
+        max_timeout_ms: 5000
+
+  - tool_id: text.transform
+    display_name: Text Transform
+    description: Case conversion, truncation, formatting
+    provider: builtin
+    category: text
+    capabilities:
+      - name: transform
+        description: Transform text (uppercase, lowercase, truncate, etc.)
+        input_schema:
+          type: object
+          properties:
+            text:
+              type: string
+            operations:
+              type: array
+              items:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [uppercase, lowercase, truncate, trim, replace, split, join]
+          required: [text, operations]
+        output_schema:
+          type: object
+          properties:
+            result:
+              type: string
+            operations_applied:
+              type: integer
+        max_timeout_ms: 5000
+
+  - tool_id: text.diff
+    display_name: Text Diff
+    description: Compare two texts and show differences
+    provider: builtin
+    category: text
+    capabilities:
+      - name: compare
+        description: Show line-by-line diff between two texts
+        input_schema:
+          type: object
+          properties:
+            original:
+              type: string
+            modified:
+              type: string
+            context_lines:
+              type: integer
+              default: 3
+          required: [original, modified]
+        output_schema:
+          type: object
+          properties:
+            diff:
+              type: string
+            added:
+              type: integer
+            removed:
+              type: integer
+            unchanged:
+              type: integer
+        max_timeout_ms: 10000
+
+  # --- System Tools ---
+  - tool_id: system.execute
+    display_name: Execute Command
+    description: Execute shell commands safely (sandboxed)
+    provider: builtin
+    category: system
+    trust_tier: local
+    capabilities:
+      - name: exec
+        description: Execute a shell command with timeout and restrictions
+        input_schema:
+          type: object
+          properties:
+            command:
+              type: string
+            working_dir:
+              type: string
+            timeout:
+              type: integer
+              default: 30000
+            env:
+              type: object
+          required: [command]
+        output_schema:
+          type: object
+          properties:
+            stdout:
+              type: string
+            stderr:
+              type: string
+            exit_code:
+              type: integer
+            duration_ms:
+              type: integer
+        max_timeout_ms: 120000
+
+  - tool_id: system.env
+    display_name: Environment Variables
+    description: Get environment variables
+    provider: builtin
+    category: system
+    capabilities:
+      - name: get
+        description: Read environment variables
+        input_schema:
+          type: object
+          properties:
+            name:
+              type: string
+              description: Variable name (null for all)
+          required: []
+        output_schema:
+          type: object
+        max_timeout_ms: 1000
+
+  - tool_id: system.datetime
+    display_name: DateTime
+    description: Get current time, format dates, calculate deltas
+    provider: builtin
+    category: system
+    capabilities:
+      - name: now
+        description: Get current datetime in various formats
+        input_schema:
+          type: object
+          properties:
+            timezone:
+              type: string
+              default: UTC
+            format:
+              type: string
+              enum: [iso, timestamp, rfc2822, custom]
+              default: iso
+          required: []
+        output_schema:
+          type: object
+          properties:
+            iso:
+              type: string
+            timestamp:
+              type: number
+            formatted:
+              type: string
+        max_timeout_ms: 1000
+
+  # --- Data Processing Tools ---
+  - tool_id: data.json
+    display_name: JSON Processor
+    description: Parse, validate, and query JSON
+    provider: builtin
+    category: data
+    capabilities:
+      - name: parse
+        description: Parse JSON string and optionally query with JSONPath
+        input_schema:
+          type: object
+          properties:
+            json:
+              type: string
+            query:
+              type: string
+              description: JSONPath query (optional)
+          required: [json]
+        output_schema:
+          type: object
+          properties:
+            data:
+              type: object
+            valid:
+              type: boolean
+            error:
+              type: string
+        max_timeout_ms: 5000
+
+  - tool_id: data.csv
+    display_name: CSV Processor
+    description: Parse and generate CSV data
+    provider: builtin
+    category: data
+    capabilities:
+      - name: parse
+        description: Parse CSV to array of objects
+        input_schema:
+          type: object
+          properties:
+            csv:
+              type: string
+            delimiter:
+              type: string
+              default: ','
+            headers:
+              type: boolean
+              default: true
+          required: [csv]
+        output_schema:
+          type: object
+          properties:
+            rows:
+              type: array
+            headers:
+              type: array
+            row_count:
+              type: integer
+        max_timeout_ms: 10000
+
+  - tool_id: data.validate
+    display_name: Schema Validator
+    description: Validate data against JSON Schema
+    provider: builtin
+    category: data
+    capabilities:
+      - name: validate
+        description: Validate data and return errors if invalid
+        input_schema:
+          type: object
+          properties:
+            data:
+              type: object
+            schema:
+              type: object
+          required: [data, schema]
+        output_schema:
+          type: object
+          properties:
+            valid:
+              type: boolean
+            errors:
+              type: array
+        max_timeout_ms: 5000
+
+  # --- Security Tools ---
+  - tool_id: security.hash
+    display_name: Hash Generator
+    description: Generate cryptographic hashes
+    provider: builtin
+    category: security
+    capabilities:
+      - name: hash
+        description: Compute MD5, SHA1, SHA256, SHA512 hashes
+        input_schema:
+          type: object
+          properties:
+            data:
+              type: string
+            algorithm:
+              type: string
+              enum: [md5, sha1, sha256, sha512]
+              default: sha256
+          required: [data]
+        output_schema:
+          type: object
+          properties:
+            hash:
+              type: string
+            algorithm:
+              type: string
+        max_timeout_ms: 5000
+
+  - tool_id: security.base64
+    display_name: Base64 Codec
+    description: Encode/decode base64
+    provider: builtin
+    category: security
+    capabilities:
+      - name: encode
+        description: Encode string to base64
+        input_schema:
+          type: object
+          properties:
+            data:
+              type: string
+            decode:
+              type: boolean
+              description: Set to true to decode instead
+              default: false
+          required: [data]
+        output_schema:
+          type: object
+          properties:
+            result:
+              type: string
+        max_timeout_ms: 1000
+
+  # --- Encoding Tools ---
+  - tool_id: encode.url
+    display_name: URL Encoder
+    description: URL encode/decode strings
+    provider: builtin
+    category: encoding
+    capabilities:
+      - name: encode
+        description: URL encode or decode strings
+        input_schema:
+          type: object
+          properties:
+            text:
+              type: string
+            decode:
+              type: boolean
+              default: false
+          required: [text]
+        output_schema:
+          type: object
+          properties:
+            result:
+              type: string
+        max_timeout_ms: 1000
+
+  # --- Documentation Tools ---
+  - tool_id: docs.markdown
+    display_name: Markdown Processor
+    description: Convert Markdown to HTML and extract structure
+    provider: builtin
+    category: docs
+    capabilities:
+      - name: process
+        description: Parse markdown and extract sections, convert to HTML
+        input_schema:
+          type: object
+          properties:
+            markdown:
+              type: string
+            extract_toc:
+              type: boolean
+              default: true
+          required: [markdown]
+        output_schema:
+          type: object
+          properties:
+            html:
+              type: string
+            toc:
+              type: array
+            headings:
+              type: array
+        max_timeout_ms: 10000
+
+  # ============================================================================
+  # REMOTE AGENTS (External Agent Inventory)
+  # These delegate to external agent instances
+  # ============================================================================
+
+agents:
+  - agent_id: percy
+    node_id: percy-node-1
+    delegate_id: "uuid..."
+    cog_id: "uuid..."
+    realm: "master"
+    display_name: Percy
+    version: 1.2.0
+    description: General reasoning and planning agent with strong analytical capabilities
+    runtime: mcp
+    endpoint:
+      transport: http
+      uri: http://localhost:8001/mcp
+    capabilities:
+      - name: reason
+        description: General reasoning, analysis, and problem-solving
+        streaming: true
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            task:
+              type: string
+              description: The reasoning task or question
+            context:
+              type: object
+              description: Additional context for reasoning
+            constraints:
+              type: object
+              description: Constraints or requirements
+          required: [task]
+        output_schema:
+          type: object
+          properties:
+            answer:
+              type: string
+              description: The reasoning result
+            reasoning_steps:
+              type: array
+              description: Step-by-step reasoning process
+            confidence:
+              type: number
+              description: Confidence score 0-1
+            citations:
+              type: array
+              description: Sources or references used
+        max_timeout_ms: 120000
+      
+      - name: plan
+        description: Multi-step planning and task decomposition
+        streaming: true
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            goal:
+              type: string
+              description: The goal to plan for
+            constraints:
+              type: object
+              description: Planning constraints
+          required: [goal]
+        output_schema:
+          type: object
+          properties:
+            plan:
+              type: array
+              description: Ordered list of steps
+            dependencies:
+              type: object
+              description: Step dependencies
+        max_timeout_ms: 90000
+    
+    tags: [planner, reasoning, dev]
+    trust_tier: org
+
+  - agent_id: coder
+    display_name: Coder
+    version: 2.0.1
+    description: Code generation, analysis, and debugging specialist
+    runtime: mcp
+    endpoint:
+      transport: http
+      uri: http://localhost:8002/mcp
+    capabilities:
+      - name: code
+        description: Generate, analyze, and debug code
+        streaming: true
+        modalities: [text, code]
+        input_schema:
+          type: object
+          properties:
+            task:
+              type: string
+              description: The coding task
+            language:
+              type: string
+              description: Programming language
+            context:
+              type: object
+              description: Code context or existing codebase
+          required: [task]
+        output_schema:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Generated or modified code
+            explanation:
+              type: string
+              description: Explanation of the code
+            tests:
+              type: string
+              description: Test cases
+        max_timeout_ms: 180000
+      
+      - name: review
+        description: Code review and quality analysis
+        streaming: false
+        modalities: [text, code]
+        input_schema:
+          type: object
+          properties:
+            code:
+              type: string
+              description: Code to review
+            language:
+              type: string
+              description: Programming language
+          required: [code]
+        output_schema:
+          type: object
+          properties:
+            issues:
+              type: array
+              description: List of issues found
+            suggestions:
+              type: array
+              description: Improvement suggestions
+            score:
+              type: number
+              description: Quality score 0-100
+        max_timeout_ms: 60000
+    
+    tags: [developer, code, execution]
+    trust_tier: org
+
+  - agent_id: vision
+    display_name: Vision
+    version: 1.0.0
+    description: Image analysis, generation, and visual understanding
+    runtime: agentzero
+    endpoint:
+      transport: http
+      uri: http://localhost:8003/agent
+    capabilities:
+      - name: analyze_image
+        description: Analyze and describe images
+        streaming: false
+        modalities: [image, text]
+        input_schema:
+          type: object
+          properties:
+            image_url:
+              type: string
+              description: URL or path to image
+            task:
+              type: string
+              description: Analysis task or question
+          required: [image_url, task]
+        output_schema:
+          type: object
+          properties:
+            description:
+              type: string
+              description: Image description
+            objects:
+              type: array
+              description: Detected objects
+            metadata:
+              type: object
+              description: Image metadata
+        max_timeout_ms: 30000
+      
+      - name: generate_image
+        description: Generate images from text descriptions
+        streaming: false
+        modalities: [text, image]
+        input_schema:
+          type: object
+          properties:
+            prompt:
+              type: string
+              description: Image generation prompt
+            style:
+              type: string
+              description: Art style or aesthetic
+            size:
+              type: string
+              description: Image dimensions
+          required: [prompt]
+        output_schema:
+          type: object
+          properties:
+            image_url:
+              type: string
+              description: Generated image URL
+            metadata:
+              type: object
+              description: Generation metadata
+        max_timeout_ms: 60000
+    
+    tags: [vision, image, multimodal]
+    trust_tier: org
+
+  - agent_id: memory
+    display_name: Memory
+    version: 0.9.0
+    description: Long-term memory and knowledge management
+    runtime: mcp
+    endpoint:
+      transport: http
+      uri: http://localhost:8004/mcp
+    capabilities:
+      - name: store
+        description: Store information in long-term memory
+        streaming: false
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            content:
+              type: string
+              description: Content to store
+            tags:
+              type: array
+              description: Tags for retrieval
+            metadata:
+              type: object
+              description: Additional metadata
+          required: [content]
+        output_schema:
+          type: object
+          properties:
+            memory_id:
+              type: string
+              description: Unique memory identifier
+            stored_at:
+              type: string
+              description: Timestamp
+        max_timeout_ms: 10000
+      
+      - name: recall
+        description: Retrieve information from memory
+        streaming: false
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            query:
+              type: string
+              description: Search query
+            limit:
+              type: integer
+              description: Max results to return
+            filters:
+              type: object
+              description: Filter criteria
+          required: [query]
+        output_schema:
+          type: object
+          properties:
+            results:
+              type: array
+              description: Retrieved memories
+            relevance_scores:
+              type: array
+              description: Relevance scores for each result
+        max_timeout_ms: 15000
+    
+    tags: [memory, storage, retrieval]
+    trust_tier: local
+
+  - agent_id: orchestrator
+    display_name: Orchestrator
+    version: 1.5.0
+    description: Multi-agent coordination and workflow execution
+    runtime: mcp
+    endpoint:
+      transport: http
+      uri: http://localhost:8005/mcp
+    capabilities:
+      - name: coordinate
+        description: Coordinate multiple agents to complete complex tasks
+        streaming: true
+        modalities: [text]
+        input_schema:
+          type: object
+          properties:
+            goal:
+              type: string
+              description: High-level goal
+            available_agents:
+              type: array
+              description: List of agent IDs to coordinate
+            constraints:
+              type: object
+              description: Execution constraints
+          required: [goal]
+        output_schema:
+          type: object
+          properties:
+            execution_plan:
+              type: object
+              description: Coordination plan
+            results:
+              type: array
+              description: Results from each agent
+            summary:
+              type: string
+              description: Overall summary
+        max_timeout_ms: 300000
+    
+    tags: [orchestration, coordination, workflow]
+    trust_tier: org

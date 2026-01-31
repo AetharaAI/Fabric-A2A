@@ -1,0 +1,44 @@
+# Fabric MCP Server Dependencies
+
+# Core framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.5.3
+
+# YAML configuration
+pyyaml==6.0.1
+
+# Async support
+asyncio==3.4.3
+aiohttp==3.9.1
+
+# Built-in Tools Dependencies
+beautifulsoup4==4.12.3        # HTML parsing for web.fetch
+cssselect==1.2.0              # CSS selectors for web scraping
+markdown==3.5.2               # Markdown processing
+jsonschema==4.21.1            # Data validation
+
+# Database (PostgreSQL)
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.25
+
+# Observability & Monitoring
+prometheus-client==0.19.0     # Prometheus metrics
+structlog==24.1.0             # Structured logging
+
+# Cryptography (for future Passport auth)
+cryptography==42.0.0
+pynacl==1.5.0
+
+# Optional: Additional monitoring
+# jaeger-client==4.8.0        # Distributed tracing
+# opentelemetry-api==1.22.0   # OpenTelemetry support
+
+# Development & Testing
+pytest==8.0.0
+pytest-asyncio==0.23.3
+httpx==0.26.0                 # Async HTTP client for testing
+
+# Production
+python-dotenv==1.0.0          # Environment variable management
+gunicorn==21.2.0              # Production WSGI server (optional)

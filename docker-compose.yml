@@ -1,0 +1,150 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: fabric-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fabric}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fabric_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-fabric_registry}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - fabric-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fabric}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Fabric MCP Server
+  fabric-gateway:
+    build: .
+    container_name: fabric-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      # Server Configuration
+      - FABRIC_TRANSPORT=${FABRIC_TRANSPORT:-http}
+      - FABRIC_PORT=${FABRIC_PORT:-8000}
+      - FABRIC_PSK=${FABRIC_PSK:-dev-shared-secret}
+      - FABRIC_CONFIG=${FABRIC_CONFIG:-agents.yaml}
+      
+      # Database Configuration (PostgreSQL)
+      - DATABASE_URL=${DATABASE_URL:-postgresql://fabric:fabric_secret@postgres:5432/fabric_registry}
+      - USE_POSTGRES=${USE_POSTGRES:-true}
+      
+      # Observability
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      
+      # Security
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
+    volumes:
+      - ./agents.yaml:/app/agents.yaml:ro
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fabric-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Prometheus (Metrics Collection)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: fabric-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - fabric-network
+    profiles:
+      - monitoring
+    restart: unless-stopped
+
+  # Grafana (Visualization)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: fabric-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - fabric-network
+    profiles:
+      - monitoring
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # Example Agent - Percy (Reasoning)
+  # Uncomment to run a local agent
+  # agent-percy:
+  #   build: ./agents/percy
+  #   container_name: fabric-agent-percy
+  #   ports:
+  #     - "8001:8001"
+  #   environment:
+  #     - AGENT_ID=percy
+  #     - AGENT_PORT=8001
+  #   networks:
+  #     - fabric-network
+  #   restart: unless-stopped
+
+  # Example Agent - Coder
+  # Uncomment to run a local agent
+  # agent-coder:
+  #   build: ./agents/coder
+  #   container_name: fabric-agent-coder
+  #   ports:
+  #     - "8002:8002"
+  #   environment:
+  #     - AGENT_ID=coder
+  #     - AGENT_PORT=8002
+  #   networks:
+  #     - fabric-network
+  #   restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  fabric-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

@@ -10,15 +10,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+COPY requirements.txt /app/
 
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY server.py .
-COPY agents.yaml .
-COPY schemas.json .
+COPY . /app
+
 
 # Create non-root user for security
 RUN useradd -m -u 1000 fabric && chown -R fabric:fabric /app

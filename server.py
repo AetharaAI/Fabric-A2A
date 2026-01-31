@@ -22,6 +22,18 @@ from pydantic import BaseModel, Field
 # Import built-in tools
 from tools.builtin_tools import execute_tool, list_builtin_tools, get_tool_info, BUILTIN_TOOLS
 
+# --- add this right before logging.basicConfig(...) ---
+_old_factory = logging.getLogRecordFactory()
+
+def _record_factory(*args, **kwargs):
+    record = _old_factory(*args, **kwargs)
+    if not hasattr(record, "trace_id"):
+        record.trace_id = "-"
+    return record
+
+logging.setLogRecordFactory(_record_factory)
+# --- end add ---
+
 # Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
@@ -481,10 +493,10 @@ class FabricServer:
                 raise FabricError(ErrorCode.BAD_INPUT, f"Unknown tool: {tool_name}")
         
         except FabricError as e:
-            logger.error(f"FabricError: {e.code.value} - {e.message}", extra={"trace_id": trace.trace_id})
+            logger.error(f"FabricError: {e.code.value} - {e.message}", extra={"mcp_trace_id": trace.trace_id})
             return e.to_dict(trace)
         except Exception as e:
-            logger.exception(f"Unexpected error: {e}", extra={"trace_id": trace.trace_id})
+            logger.exception(f"Unexpected error: {e}", extra={"mcp_trace_id": trace.trace_id})
             return FabricError(ErrorCode.INTERNAL_ERROR, str(e)).to_dict(trace)
     
     async def _handle_agent_list(self, args: Dict[str, Any], trace: TraceContext, 
@@ -607,7 +619,7 @@ class FabricServer:
         )
         
         # Execute call
-        logger.info(f"Executing call: {agent_id}.{capability}", extra={"trace_id": trace.trace_id})
+        logger.info(f"Executing call: {agent_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
         result = await adapter.call(envelope)
         return result
     
@@ -770,7 +782,7 @@ class FabricServer:
         
         # Check if it's a built-in tool
         if tool_id in BUILTIN_TOOLS:
-            logger.info(f"Executing built-in tool: {tool_id}.{capability}", extra={"trace_id": trace.trace_id})
+            logger.info(f"Executing built-in tool: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
             
             # Add trace context to parameters
             parameters['_trace'] = {
@@ -889,7 +901,7 @@ class FabricServer:
                 
                 capability = capability_map.get(method_name, method_name)
                 
-                logger.info(f"Executing direct tool call: {tool_id}.{capability}", extra={"trace_id": trace.trace_id})
+                logger.info(f"Executing direct tool call: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
                 
                 result = await execute_tool(tool_id, capability, args)
                 

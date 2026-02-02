@@ -375,7 +375,7 @@ class WebTools:
     
 
     @staticmethod
-    async def brave_search(query: str, recency_days: int = 7, max_results: int = 5):
+    async def brave_search(query: str, recency_days: int = 7, max_results: int = 5, **kwargs) -> ToolResult:
         key = os.getenv("BRAVE_API_KEY")
         if not key:
             raise RuntimeError("BRAVE_API_KEY not set")

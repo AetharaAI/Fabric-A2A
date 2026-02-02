@@ -389,9 +389,12 @@ class WebTools:
         }
         params = {
             "q": query,
-            "recency": recency_days,
-            "domains": None,
+            "count": max_results,
         }
+        
+        # Add optional parameters only if they have valid values
+        if recency_days is not None:
+            params["freshness"] = f"pd{recency_days}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
             async with session.get(url, headers=headers, params=params) as r:

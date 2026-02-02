@@ -35,6 +35,7 @@ services:
       - FABRIC_PORT=${FABRIC_PORT:-8000}
       - FABRIC_PSK=${FABRIC_PSK:-dev-shared-secret}
       - FABRIC_CONFIG=${FABRIC_CONFIG:-agents.yaml}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
       
       # Database Configuration (PostgreSQL)
       - DATABASE_URL=${DATABASE_URL:-postgresql://fabric:fabric_secret@postgres:5432/fabric_registry}

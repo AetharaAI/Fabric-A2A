@@ -26,6 +26,8 @@ from typing import Dict, Any, List, Optional, AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
 import fnmatch
+from dotenv import load_dotenv
+load_dotenv()
 
 
 class ToolError(Exception):

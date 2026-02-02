@@ -21,6 +21,10 @@ from pydantic import BaseModel, Field
 
 # Import built-in tools
 from tools.builtin_tools import execute_tool, list_builtin_tools, get_tool_info, BUILTIN_TOOLS
+from tools.base import BaseTool
+
+# Load tool plugins on startup
+BaseTool.load_plugins("tools/plugins")
 
 # --- add this right before logging.basicConfig(...) ---
 _old_factory = logging.getLogRecordFactory()
@@ -780,8 +784,8 @@ class FabricServer:
         if not tool_id:
             raise FabricError(ErrorCode.BAD_INPUT, "tool_id is required")
         
-        # Check if it's a built-in tool
-        if tool_id in BUILTIN_TOOLS:
+        # Check if it's a built-in tool (legacy dict or new registry)
+        if tool_id in BUILTIN_TOOLS or BaseTool.get_tool_class(tool_id):
             logger.info(f"Executing built-in tool: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
             
             # Add trace context to parameters
@@ -871,9 +875,13 @@ class FabricServer:
             action = parts[3]
             tool_id = f"{category}.{action}"
             
-            if tool_id in BUILTIN_TOOLS:
+            if tool_id in BUILTIN_TOOLS or BaseTool.get_tool_class(tool_id):
                 # Determine capability from tool definition
-                tool_class, method_name = BUILTIN_TOOLS[tool_id]
+                if tool_id in BUILTIN_TOOLS:
+                    tool_class, method_name = BUILTIN_TOOLS[tool_id]
+                else:
+                    tool_class = BaseTool.get_tool_class(tool_id)
+                    method_name = None
                 
                 # Map method name to capability name
                 capability_map = {
@@ -884,6 +892,7 @@ class FabricServer:
                     "request": "request",
                     "fetch": "fetch",
                     "parse_url": "parse_url",
+                    "brave_search": "search",
                     "eval": "eval",
                     "analyze": "analyze",
                     "match": "match",
@@ -899,7 +908,11 @@ class FabricServer:
                     "markdown_process": "markdown_process"
                 }
                 
-                capability = capability_map.get(method_name, method_name)
+                if method_name:
+                    capability = capability_map.get(method_name, method_name)
+                else:
+                    # New BaseTool system - get first capability from tool class
+                    capability = next(iter(tool_class.CAPABILITIES.keys()), None)
                 
                 logger.info(f"Executing direct tool call: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
                 

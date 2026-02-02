@@ -248,6 +248,39 @@ tools:
               type: string
         max_timeout_ms: 1000
 
+  - tool_id: web.brave_search
+    display_name: Brave Web Search
+    description: Live web search using Brave API
+    provider: builtin
+    category: web
+    capabilities:
+      - name: search
+        streaming: false
+        input_schema:
+          type: object
+          properties:
+            query:
+              type: string
+              description: Search query
+            recency_days:
+              type: integer
+              default: 7
+            max_results:
+              type: integer
+              default: 5
+          required: [query]
+        output_schema:
+          type: object
+          properties:
+            provider:
+              type: string
+            query:
+              type: string
+            results:
+              type: array
+        max_timeout_ms: 20000
+
+
   # --- Math Tools ---
   - tool_id: math.calculate
     display_name: Calculator

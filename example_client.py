@@ -140,6 +140,21 @@ class FabricClient:
             "data": data,
             "decode": decode
         })
+    
+    def brave_search(self, query: str, recency_days: int = 7, max_results: int = 5):
+        """Perform a Brave web search using built-in tool"""
+        return self._call_tool(
+            "fabric.tool.call",
+            {
+                "tool_id": "web.brave_search",
+                "capability": "search",
+                "parameters": {
+                    "query": query,
+                "recency_days": recency_days,
+                    "max_results": max_results
+                }
+            }
+        )
 
 
 def print_section(title: str):

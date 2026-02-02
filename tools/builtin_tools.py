@@ -401,10 +401,10 @@ class WebTools:
         results = []
         for item in data.get("web", {}).get("results", [])[:max_results]:
             results.append({
-                "title": item.get("title"),
-                "url": item.get("url"),
-                "snippet": item.get("description"),
-                "age_days": item.get("age"),
+                "title": item.get("title") or "",
+                "url": item.get("url") or "",
+                "snippet": item.get("description") or "",
+                "age_days": item.get("age") or 0,
             })
 
         return ToolResult({

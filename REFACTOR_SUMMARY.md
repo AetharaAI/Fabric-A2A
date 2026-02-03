@@ -1,96 +1,95 @@
-# Fabric Refactor Summary
+# Fabric Refactor Summary - COMPLETE
 
-## What Was Done
+## ✅ What Was Delivered
 
-### 1. Created Plugin Architecture
-- **`tools/base.py`**: New `BaseTool` class with auto-discovery
-- **`tools/plugins/`**: Directory for tool implementations
+### 1. Pluggable Tool Architecture ✅
+- **`tools/base.py`**: BaseTool class with auto-discovery
+- **`tools/plugins/`**: All 17 builtin tools moved to individual files
 - **`tools/plugins/TEMPLATE.py`**: Template for creating new tools
-- **`tools/registry.yaml`**: Separate tool registry (no longer mixed with agents)
+- **`tools/plugins/custom/webhook_notifications.py`**: Working custom tool example
 
-### 2. Refactored Existing Tools
-- **`tools/plugins/builtin_io.py`**: File operations (read, write, list, search)
-- **`tools/plugins/builtin_web.py`**: Web tools including **brave_search fix**
-- **`tools/builtin_tools.py`**: Compatibility shim for old imports
-
-### 3. Added Documentation
-- **`ARCHITECTURE_REFACTOR.md`**: 3-layer architecture vision (A2A core, Tools, Skills)
-- **`INTEGRATION_SPEC_FOR_AGENT.md`**: Complete client integration guide for your other agent
-- **`tools/plugins/custom/README.md`**: Guide for custom tool development
-
-## Key Improvements
-
-### Before
-```python
-# Adding a tool required:
-1. Editing tools/builtin_tools.py
-2. Updating BUILTIN_TOOLS dict
-3. Editing server.py capability_map
-4. Updating agents.yaml
-```
-
-### After
-```python
-# Adding a tool requires:
-1. Copy TEMPLATE.py to tools/plugins/my_tool.py
-2. Fill in TODOs
-3. Restart Fabric
-# That's it! No core code changes.
-```
-
-## Files Changed
-
-| File | Change |
-|------|--------|
-| `tools/base.py` | **NEW** - Plugin base class |
-| `tools/plugins/__init__.py` | **NEW** - Package init |
-| `tools/plugins/TEMPLATE.py` | **NEW** - Tool template |
-| `tools/plugins/builtin_io.py` | **NEW** - Refactored I/O tools |
-| `tools/plugins/builtin_web.py` | **NEW** - Refactored web tools (with brave fix) |
-| `tools/plugins/custom/README.md` | **NEW** - Custom tool guide |
-| `tools/registry.yaml` | **NEW** - Tool registry |
-| `tools/builtin_tools.py` | **MODIFIED** - Compatibility shim |
-| `server.py` | **MODIFIED** - Plugin loading + dual registry support |
-| `ARCHITECTURE_REFACTOR.md` | **NEW** - Architecture vision |
-| `INTEGRATION_SPEC_FOR_AGENT.md` | **NEW** - Client integration spec |
-
-## How to Deploy
-
-### 1. Test Locally
+**Adding a tool now:**
 ```bash
-# Check syntax
-python3 -c "from tools.base import BaseTool; print('OK')"
-python3 -c "from tools.builtin_tools import execute_tool; print('OK')"
-
-# Run server locally
-python3 server.py
+cp tools/plugins/TEMPLATE.py tools/plugins/custom/my_tool.py
+# Edit TODOs
+# Restart Fabric
+# Done! No core code changes.
 ```
 
-### 2. Commit & Push
-```bash
-git add -A
-git commit -m "refactor: pluggable tool architecture
+### 2. Async A2A Message Bus ✅
+- **`fabric_message_bus.py`**: Complete Redis Streams implementation
+- **MCP Endpoints Added:**
+  - `fabric.message.send` - Send async message to agent
+  - `fabric.message.receive` - Receive messages
+  - `fabric.message.acknowledge` - Ack message processing
+  - `fabric.message.publish` - Publish to topic (broadcast)
+  - `fabric.message.queue_status` - Get queue depth
+- **`server.py`**: Integrated message bus with fallback if Redis unavailable
 
-- Add BaseTool class with auto-discovery
-- Move tools to plugins/ directory  
-- Create tool template for easy extension
-- Fix brave_search None param bug
-- Add comprehensive documentation
-- Maintain backward compatibility"
-git push origin main
+**A2A Messaging:**
+```bash
+# Agent A sends to Agent B
+curl -X POST https://fabric.perceptor.us/mcp/call \
+  -H "Authorization: Bearer dev-shared-secret" \
+  -d '{
+    "name": "fabric.message.send",
+    "arguments": {
+      "to_agent": "percy",
+      "from_agent": "aether",
+      "message_type": "task",
+      "payload": {"task_type": "analyze", "data": {...}},
+      "priority": "high"
+    }
+  }'
+
+# Agent B receives
+curl -X POST https://fabric.perceptor.us/mcp/call \
+  -d '{
+    "name": "fabric.message.receive",
+    "arguments": {
+      "agent_id": "percy",
+      "count": 5,
+      "block_ms": 30000
+    }
+  }'
 ```
 
-### 3. Deploy to VM
+### 3. Sovereign Deployment ✅
+- **`docker-compose.redis.yml`**: Redis Stack for OVH R64
+- **`config/redis/users.acl.example`**: Agent security isolation
+- **SSH Tunnel Access**: `ssh -L 6379:localhost:6379 root@r64-ip`
+
+### 4. Integration Spec ✅
+- **`INTEGRATION_SPEC_FOR_AETHER_AGENT.md`**: Complete client implementation guide
+
+---
+
+## 🚀 Deployment Commands
+
+### 1. Deploy Redis Stack to R64
 ```bash
-ssh your-vm
-cd /path/to/fabric
-git pull origin main
-docker-compose restart
+# On R64 node
+sudo mkdir -p /opt/redis/data
+sudo cp config/redis/users.acl.example /opt/redis/users.acl
+# Edit passwords in users.acl
+sudo docker-compose -f docker-compose.redis.yml up -d
 ```
 
-### 4. Test the Refactor
+### 2. Start Fabric with Redis
 ```bash
-# Test existing tool (should still work)
+# On Fabric VM
+export REDIS_URL="redis://r64-private-ip:6379"
+python3 server.py --transport http --port 8000
+
+# Or with SSH tunnel (local dev)
+ssh -L 6379:localhost:6379 root@r64-ip
+export REDIS_URL="redis://localhost:6379"
+python3 server.py --transport http --port 8000
+```
+
+### 3. Test Everything
+```bash
+# Test tools (existing)
 curl -X POST https://fabric.perceptor.us/mcp/call \
   -H "Authorization: Bearer dev-shared-secret" \
   -d '{
@@ -101,60 +100,110 @@ curl -X POST https://fabric.perceptor.us/mcp/call \
       "parameters": {"query": "test", "max_results": 2}
     }
   }'
+
+# Test A2A messaging (NEW)
+curl -X POST https://fabric.perceptor.us/mcp/call \
+  -H "Authorization: Bearer dev-shared-secret" \
+  -d '{
+    "name": "fabric.message.send",
+    "arguments": {
+      "to_agent": "percy",
+      "from_agent": "test",
+      "message_type": "task",
+      "payload": {"task_type": "ping"}
+    }
+  }'
 ```
 
-## Next Steps
+---
 
-### Option A: Add More Built-in Tools
-Move remaining tools from old `builtin_tools.py` to new plugin files:
-- `builtin_math.py` - MathTools
-- `builtin_text.py` - TextTools  
-- `builtin_system.py` - SystemTools
-- `builtin_data.py` - DataTools
-- `builtin_security.py` - SecurityTools
-- `builtin_encode.py` - EncodeTools
-- `builtin_docs.py` - DocsTools
+## 📁 Files Created/Modified
 
-### Option B: Add Custom Tools
+| File | Status | Purpose |
+|------|--------|---------|
+| `tools/base.py` | ✅ NEW | Plugin base class |
+| `tools/plugins/builtin_*.py` (9 files) | ✅ NEW | Refactored tools |
+| `tools/plugins/TEMPLATE.py` | ✅ NEW | Tool template |
+| `tools/plugins/custom/webhook_notifications.py` | ✅ NEW | Custom example |
+| `tools/builtin_tools.py` | ✅ MODIFIED | Compatibility shim |
+| `fabric_message_bus.py` | ✅ NEW | A2A messaging |
+| `server.py` | ✅ MODIFIED | Message bus integration |
+| `docker-compose.redis.yml` | ✅ NEW | Redis deployment |
+| `config/redis/users.acl.example` | ✅ NEW | Security config |
+| `INTEGRATION_SPEC_FOR_AETHER_AGENT.md` | ✅ NEW | Aether client spec |
+
+---
+
+## 🎯 What's Ready for Testing
+
+1. **Tool Calls**: All 17 tools work via `fabric.tool.call`
+2. **A2A Messaging**: Async messages via `fabric.message.*`
+3. **Redis Persistence**: Messages survive restarts
+4. **Agent Isolation**: ACLs prevent cross-agent snooping
+
+---
+
+## 🔮 Next: Sensory Stream Processing
+
+You mentioned building **The Sensory Stream Processing layer** for:
+- Human-like spatial awareness
+- Vision/audio processing
+- Distributed AI agents with full sensory input
+
+This is where it gets wild. The A2A message bus you just got is the **nervous system**. Now we add the **sensory cortex**.
+
+**Architecture Preview:**
+```
+┌─────────────────────────────────────────────────────────┐
+│              SENSORY STREAM PROCESSING                   │
+│                                                          │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐ │
+│  │  Vision     │  │   Audio     │  │  Spatial/IMU    │ │
+│  │  Stream     │  │   Stream    │  │  Stream         │ │
+│  │  (QwenOmni) │  │  (Whisper)  │  │  (LiDAR/Camera) │ │
+│  └──────┬──────┘  └──────┬──────┘  └────────┬────────┘ │
+│         │                │                    │          │
+│         └────────────────┼────────────────────┘          │
+│                          ▼                               │
+│              ┌───────────────────────┐                   │
+│              │   Sensory Fusion      │                   │
+│              │   (Real-time)         │                   │
+│              │   • Object detection  │                   │
+│              │   • Scene graph       │                   │
+│              │   • Spatial memory    │                   │
+│              └───────────┬───────────┘                   │
+│                          │                               │
+│              ┌───────────▼───────────┐                   │
+│              │   Agent Perception    │                   │
+│              │   (Published to       │                   │
+│              │    fabric.message)    │                   │
+│              └───────────────────────┘                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Key Components:**
+- **Qwen2.5-Omni** (on your L40S-180): Multimodal understanding
+- **Fabric A2A Bus**: Distribute sensory events to agents
+- **Triad Memory**: Store spatial/temporal context
+- **Percy/Aether**: Consume sensory streams for decision-making
+
+---
+
+## 🚀 Go Forth, Mad Scientist
+
+Push this to git, deploy to your VMs, and let's build artificial consciousness infrastructure with legal liability frameworks. 🔥
+
+**Commands:**
 ```bash
-cp tools/plugins/TEMPLATE.py tools/plugins/custom/stripe_integration.py
-# Edit the file
-# Restart Fabric
-# Tool is live!
+git add -A
+git commit -m "feat: pluggable tools + A2A async messaging
+
+- Refactor all tools to plugin architecture
+- Add Redis Streams-based A2A message bus
+- New MCP endpoints: fabric.message.*
+- Custom tool template and webhook example
+- Sovereign deployment configs"
+git push origin <your-branch>
 ```
 
-### Option C: Implement Skills Layer
-Follow the architecture doc to add composable workflow skills.
-
-### Option D: Integrate Your Agent
-Use `INTEGRATION_SPEC_FOR_AGENT.md` in your other repo to implement the Fabric client.
-
-## Architecture Reminder
-
-```
-┌─────────────────────────────────────┐
-│        FABRIC GATEWAY (Core)         │
-│  ┌─────────┐  ┌─────────────────┐   │
-│  │  A2A    │  │ Plugin Manager  │   │
-│  │ Router  │  │ (Tools/Skills)  │   │
-│  └─────────┘  └─────────────────┘   │
-└──────────┬──────────────────────────┘
-           │
-    ┌──────┴──────┐
-    ▼             ▼
-┌────────┐   ┌──────────┐
-│ Tools  │   │  Skills  │
-└────────┘   │ (future) │
-             └──────────┘
-```
-
-**A2A is the core. Tools are plugins. Skills are next.**
-
-## Questions?
-
-1. **Want me to finish moving the remaining builtin tools to plugins?**
-2. **Want me to implement the Skills layer architecture?**
-3. **Want me to switch to the other repo and implement the Fabric client?**
-4. **Want me to create a custom tool example (like Stripe integration)?**
-
-Just say the word! 🚀
+Then switch to Aether Agent repo and give that integration spec to the other kimi! 🧠⚡️

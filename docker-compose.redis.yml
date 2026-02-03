@@ -1,0 +1,84 @@
+# Docker Compose for Redis Stack on OVH R64 Node
+# 
+# This runs Redis Stack with persistence, ACLs, and RedisInsight
+# Place this on your R64 node alongside Postgres and Weaviate
+#
+# Usage:
+#   docker-compose -f docker-compose.redis.yml up -d
+
+version: '3.8'
+
+services:
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: fabric-redis
+    restart: unless-stopped
+    
+    ports:
+      # Redis server - only bind to localhost for security
+      # Access via SSH tunnel: ssh -L 6379:localhost:6379 root@your-r64-ip
+      - "127.0.0.1:6379:6379"
+      
+      # RedisInsight UI - only localhost (use SSH tunnel for access)
+      # Access: ssh -L 8001:localhost:8001 root@your-r64-ip
+      # Then open http://localhost:8001 in browser
+      - "127.0.0.1:8001:8001"
+    
+    volumes:
+      # Persistent data
+      - /opt/redis/data:/data
+      
+      # Custom config (optional - create this file first)
+      - /opt/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      
+      # ACL file for agent security
+      - /opt/redis/users.acl:/data/users.acl:ro
+    
+    environment:
+      # Redis password (override in .env file or use ACL file)
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
+    
+    # Resource limits for R64 node
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+  # Optional: Redis Exporter for Prometheus metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: fabric-redis-exporter
+    restart: unless-stopped
+    environment:
+      - REDIS_ADDR=redis://redis-stack:6379
+    ports:
+      - "127.0.0.1:9121:9121"  # Metrics endpoint
+    depends_on:
+      - redis-stack
+    profiles: ["monitoring"]  # Only start with: docker-compose --profile monitoring up
+
+# Use same network as your other services (Postgres, Weaviate)
+networks:
+  default:
+    name: fabric-network
+    # If you already have a network from other compose files:
+    # external: true

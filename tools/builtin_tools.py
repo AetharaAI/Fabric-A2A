@@ -37,8 +37,17 @@ from tools.base import (
 
 # Import and register all builtin plugins
 # This ensures they're available in the registry
-from tools.plugins import builtin_io
-from tools.plugins import builtin_web
+from tools.plugins import (
+    builtin_io,
+    builtin_web,
+    builtin_math,
+    builtin_text,
+    builtin_system,
+    builtin_data,
+    builtin_security,
+    builtin_encode,
+    builtin_docs
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,22 +59,39 @@ def _build_legacy_registry():
     """Build legacy BUILTIN_TOOLS dict from new registry"""
     global BUILTIN_TOOLS
     
-    # Map from new registry format to old format
-    # Old: "io.read_file": (IOTools, "read")
-    # New: Auto-discovered via BaseTool._registry
-    
-    # Since we moved to class-based registry, we'll create a shim
-    # that maps to the new system
-    
     tool_mapping = {
+        # I/O Tools
         "io.read_file": (builtin_io.IOTools, "read"),
         "io.write_file": (builtin_io.IOTools, "write"),
         "io.list_directory": (builtin_io.IOTools, "list"),
         "io.search_files": (builtin_io.IOTools, "search"),
+        # Web Tools
         "web.http_request": (builtin_web.WebTools, "request"),
         "web.fetch_page": (builtin_web.WebTools, "fetch"),
         "web.parse_url": (builtin_web.WebTools, "parse_url"),
         "web.brave_search": (builtin_web.WebTools, "brave_search"),
+        # Math Tools
+        "math.calculate": (builtin_math.MathTools, "eval"),
+        "math.statistics": (builtin_math.MathTools, "analyze"),
+        # Text Tools
+        "text.regex": (builtin_text.TextTools, "match"),
+        "text.transform": (builtin_text.TextTools, "transform"),
+        "text.diff": (builtin_text.TextTools, "compare"),
+        # System Tools
+        "system.execute": (builtin_system.SystemTools, "exec"),
+        "system.env": (builtin_system.SystemTools, "get"),
+        "system.datetime": (builtin_system.SystemTools, "now"),
+        # Data Tools
+        "data.json": (builtin_data.DataTools, "parse"),
+        "data.csv": (builtin_data.DataTools, "csv_parse"),
+        "data.validate": (builtin_data.DataTools, "validate"),
+        # Security Tools
+        "security.hash": (builtin_security.SecurityTools, "hash"),
+        "security.base64": (builtin_security.SecurityTools, "base64_encode"),
+        # Encoding Tools
+        "encode.url": (builtin_encode.EncodeTools, "url_encode"),
+        # Docs Tools
+        "docs.markdown": (builtin_docs.DocsTools, "markdown_process"),
     }
     
     BUILTIN_TOOLS.update(tool_mapping)
@@ -86,17 +112,22 @@ __all__ = [
     # Legacy classes for direct access
     'IOTools',
     'WebTools',
+    'MathTools',
+    'TextTools',
+    'SystemTools',
+    'DataTools',
+    'SecurityTools',
+    'EncodeTools',
+    'DocsTools',
 ]
 
 # Re-export tool classes for direct access (legacy)
 IOTools = builtin_io.IOTools
 WebTools = builtin_web.WebTools
-
-# TODO: Add remaining tool categories as they're refactored:
-# - builtin_math (MathTools)
-# - builtin_text (TextTools)  
-# - builtin_system (SystemTools)
-# - builtin_data (DataTools)
-# - builtin_security (SecurityTools)
-# - builtin_encode (EncodeTools)
-# - builtin_docs (DocsTools)
+MathTools = builtin_math.MathTools
+TextTools = builtin_text.TextTools
+SystemTools = builtin_system.SystemTools
+DataTools = builtin_data.DataTools
+SecurityTools = builtin_security.SecurityTools
+EncodeTools = builtin_encode.EncodeTools
+DocsTools = builtin_docs.DocsTools

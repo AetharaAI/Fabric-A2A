@@ -23,6 +23,15 @@ from pydantic import BaseModel, Field
 from tools.builtin_tools import execute_tool, list_builtin_tools, get_tool_info, BUILTIN_TOOLS
 from tools.base import BaseTool
 
+# Import A2A message bus (optional - only if Redis available)
+try:
+    from fabric_message_bus import FabricMessageBus, FabricMessageBusMCP, MessagePriority
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("Redis not available - A2A messaging disabled")
+
 # Load tool plugins on startup
 BaseTool.load_plugins("tools/plugins")
 
@@ -455,11 +464,25 @@ class AuthService:
 class FabricServer:
     """Main Fabric MCP server"""
     
-    def __init__(self, registry: AgentRegistry, auth_service: AuthService):
+    def __init__(self, registry: AgentRegistry, auth_service: AuthService, redis_url: Optional[str] = None):
         self.registry = registry
         self.auth_service = auth_service
         self.start_time = time.time()
         self.version = "af-mcp-0.1"
+        
+        # Initialize A2A message bus (if Redis available)
+        self.message_bus = None
+        self.message_mcp = None
+        if REDIS_AVAILABLE and redis_url:
+            try:
+                import asyncio
+                self.message_bus = FabricMessageBus(redis_url=redis_url)
+                self.message_mcp = FabricMessageBusMCP(self.message_bus)
+                logger.info(f"A2A Message Bus initialized: {redis_url}")
+            except Exception as e:
+                logger.error(f"Failed to initialize message bus: {e}")
+                self.message_bus = None
+                self.message_mcp = None
     
     async def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any], 
                                auth_token: Optional[str] = None) -> Dict[str, Any]:
@@ -490,6 +513,17 @@ class FabricServer:
                 return await self._handle_tool_call(arguments, trace, auth_ctx)
             elif tool_name == "fabric.tool.describe":
                 return await self._handle_tool_describe(arguments, trace, auth_ctx)
+            # A2A Async Messaging endpoints
+            elif tool_name == "fabric.message.send":
+                return await self._handle_message_send(arguments, trace, auth_ctx)
+            elif tool_name == "fabric.message.receive":
+                return await self._handle_message_receive(arguments, trace, auth_ctx)
+            elif tool_name == "fabric.message.acknowledge":
+                return await self._handle_message_acknowledge(arguments, trace, auth_ctx)
+            elif tool_name == "fabric.message.publish":
+                return await self._handle_message_publish(arguments, trace, auth_ctx)
+            elif tool_name == "fabric.message.queue_status":
+                return await self._handle_queue_status(arguments, trace, auth_ctx)
             elif tool_name.startswith("fabric.tool.") and tool_name not in ["fabric.tool.list", "fabric.tool.call", "fabric.tool.describe"]:
                 # Handle direct tool calls like fabric.tool.io.read_file
                 return await self._handle_builtin_tool_direct(tool_name, arguments, trace, auth_ctx)
@@ -924,6 +958,80 @@ class FabricServer:
                 return result
         
         raise FabricError(ErrorCode.BAD_INPUT, f"Unknown built-in tool: {tool_name}")
+    
+    # ============================================================================
+    # A2A Async Messaging Handlers
+    # ============================================================================
+    
+    async def _handle_message_send(self, args: Dict[str, Any], trace: TraceContext,
+                                   auth: AuthContext) -> Dict[str, Any]:
+        """Handle fabric.message.send - Send async message to agent"""
+        if not self.message_mcp:
+            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
+        
+        try:
+            result = await self.message_mcp.send(**args)
+            result["trace"] = trace.to_dict()
+            return result
+        except Exception as e:
+            logger.error(f"Message send failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to send message: {str(e)}")
+    
+    async def _handle_message_receive(self, args: Dict[str, Any], trace: TraceContext,
+                                      auth: AuthContext) -> Dict[str, Any]:
+        """Handle fabric.message.receive - Receive messages for agent"""
+        if not self.message_mcp:
+            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
+        
+        try:
+            result = await self.message_mcp.receive(**args)
+            result["trace"] = trace.to_dict()
+            return result
+        except Exception as e:
+            logger.error(f"Message receive failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to receive messages: {str(e)}")
+    
+    async def _handle_message_acknowledge(self, args: Dict[str, Any], trace: TraceContext,
+                                          auth: AuthContext) -> Dict[str, Any]:
+        """Handle fabric.message.acknowledge - Ack message processing"""
+        if not self.message_mcp:
+            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
+        
+        try:
+            result = await self.message_mcp.acknowledge(**args)
+            result["trace"] = trace.to_dict()
+            return result
+        except Exception as e:
+            logger.error(f"Message acknowledge failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to acknowledge: {str(e)}")
+    
+    async def _handle_message_publish(self, args: Dict[str, Any], trace: TraceContext,
+                                      auth: AuthContext) -> Dict[str, Any]:
+        """Handle fabric.message.publish - Publish to topic"""
+        if not self.message_mcp:
+            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
+        
+        try:
+            result = await self.message_mcp.publish(**args)
+            result["trace"] = trace.to_dict()
+            return result
+        except Exception as e:
+            logger.error(f"Message publish failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to publish: {str(e)}")
+    
+    async def _handle_queue_status(self, args: Dict[str, Any], trace: TraceContext,
+                                   auth: AuthContext) -> Dict[str, Any]:
+        """Handle fabric.message.queue_status - Get queue depth"""
+        if not self.message_mcp:
+            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
+        
+        try:
+            result = await self.message_mcp.queue_status(**args)
+            result["trace"] = trace.to_dict()
+            return result
+        except Exception as e:
+            logger.error(f"Queue status failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to get queue status: {str(e)}")
 
 
 # ============================================================================
@@ -1065,6 +1173,7 @@ def load_registry_from_yaml(registry: AgentRegistry, yaml_path: str):
 async def main():
     """Main entry point"""
     import argparse
+    import os
     
     parser = argparse.ArgumentParser(description="Fabric MCP Server")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio",
@@ -1074,13 +1183,15 @@ async def main():
     parser.add_argument("--config", default="agents.yaml",
                        help="Path to agents configuration YAML")
     parser.add_argument("--psk", help="Pre-shared key for authentication")
+    parser.add_argument("--redis-url", default=os.getenv("REDIS_URL"),
+                       help="Redis URL for A2A messaging (default: REDIS_URL env var)")
     
     args = parser.parse_args()
     
     # Initialize components
     registry = AgentRegistry()
     auth_service = AuthService(psk=args.psk)
-    fabric = FabricServer(registry, auth_service)
+    fabric = FabricServer(registry, auth_service, redis_url=args.redis_url)
     
     # Load agents from config
     try:

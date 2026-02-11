@@ -37,7 +37,7 @@ services:
 
     volumes:
       # persistent data INSIDE docker volume (not random host paths)      
-      - fabric-a2a_redis_data:/data
+      - fabric_redis_data:/data
       - ./config/redis/users.acl:/data/users.acl:ro
     environment:
       # durability + ACL in one place
@@ -164,7 +164,7 @@ services:
 volumes:
   postgres_data:
     driver: local
-  redis_data:
+  fabric_redis_data:
     driver: local
   prometheus_data:
     driver: local

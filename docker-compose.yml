@@ -40,11 +40,11 @@ services:
       - redis_data:/data
 
       # your ACL file (must exist)
-      - ./config/redis/users.acl:/data/users.acl:ro
+#      - ./config/redis/users.acl:/data/users.acl:ro
 
     environment:
       # durability + ACL in one place
-      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec
 
     healthcheck:
       test: ["CMD-SHELL","redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]

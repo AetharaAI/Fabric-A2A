@@ -23,6 +23,28 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # Redis Stack (A2A Message Bus)
+  redis-stack:
+    image: redis/redis-stack:latest
+    container_name: fabric-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+      - "8001:8001"
+    volumes:
+      - redis_data:/data
+      - ./config/redis/users.acl:/data/users.acl:ro
+    environment:
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - fabric-network
+
   # Fabric MCP Server
   fabric-gateway:
     build: .
@@ -41,6 +63,9 @@ services:
       - DATABASE_URL=${DATABASE_URL:-postgresql://fabric:fabric_a2a_mcp_aetherpro_2026@postgres:5432/fabric_registry}
       - USE_POSTGRES=${USE_POSTGRES:-true}
       
+      # Redis Configuration (A2A Message Bus)
+      - REDIS_URL=${REDIS_URL:-redis://redis-stack:6379}
+      
       # Observability
       - ENABLE_METRICS=${ENABLE_METRICS:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -53,6 +78,8 @@ services:
       - ./logs:/app/logs
     depends_on:
       postgres:
+        condition: service_healthy
+      redis-stack:
         condition: service_healthy
     networks:
       - fabric-network
@@ -137,6 +164,8 @@ services:
 
 volumes:
   postgres_data:
+    driver: local
+  redis_data:
     driver: local
   prometheus_data:
     driver: local

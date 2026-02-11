@@ -36,12 +36,9 @@ services:
       - "127.0.0.1:8001:8001"   # RedisInsight
 
     volumes:
-      # persistent data INSIDE docker volume (not random host paths)
-      - redis_data:/data
-
-      # your ACL file (must exist)
-#      - ./config/redis/users.acl:/data/users.acl:ro
-
+      # persistent data INSIDE docker volume (not random host paths)      
+      - fabric-a2a_redis_data:/data
+      - ./config/redis/users.acl:/data/users.acl:ro
     environment:
       # durability + ACL in one place
       - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl

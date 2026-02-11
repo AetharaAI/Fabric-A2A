@@ -44,7 +44,7 @@ services:
 
     environment:
       # durability + ACL in one place
-      - REDIS_ARGS=--appendonly yes --appendfsync everysec
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
 
     healthcheck:
       test: ["CMD-SHELL","redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]

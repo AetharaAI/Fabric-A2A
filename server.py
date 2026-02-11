@@ -7,6 +7,7 @@ Production-grade MCP server for agent communication using MCP as the interface.
 import asyncio
 import json
 import logging
+import re
 import sys
 import time
 import uuid
@@ -16,16 +17,26 @@ from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel, Field
 
 # Import built-in tools
-from tools.builtin_tools import execute_tool, list_builtin_tools, get_tool_info, BUILTIN_TOOLS
+from tools.builtin_tools import (
+    execute_tool,
+    list_builtin_tools,
+    get_tool_info,
+    BUILTIN_TOOLS,
+)
 from tools.base import BaseTool
 
 # Import A2A message bus (optional - only if Redis available)
 try:
-    from fabric_message_bus import FabricMessageBus, FabricMessageBusMCP, MessagePriority
+    from fabric_message_bus import (
+        FabricMessageBus,
+        FabricMessageBusMCP,
+        MessagePriority,
+    )
+
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
@@ -38,11 +49,13 @@ BaseTool.load_plugins("tools/plugins")
 # --- add this right before logging.basicConfig(...) ---
 _old_factory = logging.getLogRecordFactory()
 
+
 def _record_factory(*args, **kwargs):
     record = _old_factory(*args, **kwargs)
     if not hasattr(record, "trace_id"):
         record.trace_id = "-"
     return record
+
 
 logging.setLogRecordFactory(_record_factory)
 # --- end add ---
@@ -51,7 +64,7 @@ logging.setLogRecordFactory(_record_factory)
 logging.basicConfig(
     level=logging.INFO,
     format='{"timestamp":"%(asctime)s","level":"%(levelname)s","message":"%(message)s","trace_id":"%(trace_id)s"}',
-    handlers=[logging.StreamHandler(sys.stderr)]
+    handlers=[logging.StreamHandler(sys.stderr)],
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +73,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 # Data Models
 # ============================================================================
+
 
 class AuthMode(str, Enum):
     PSK = "psk"
@@ -91,29 +105,33 @@ class TrustTier(str, Enum):
 @dataclass
 class TraceContext:
     """Distributed tracing context"""
+
     trace_id: str
     span_id: str
     parent_span_id: Optional[str] = None
 
     @classmethod
-    def create(cls, trace_id: Optional[str] = None, parent_span_id: Optional[str] = None):
+    def create(
+        cls, trace_id: Optional[str] = None, parent_span_id: Optional[str] = None
+    ):
         return cls(
             trace_id=trace_id or str(uuid.uuid4()),
             span_id=str(uuid.uuid4()),
-            parent_span_id=parent_span_id
+            parent_span_id=parent_span_id,
         )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "trace_id": self.trace_id,
             "span_id": self.span_id,
-            "parent_span_id": self.parent_span_id
+            "parent_span_id": self.parent_span_id,
         }
 
 
 @dataclass
 class AuthContext:
     """Authentication context"""
+
     mode: AuthMode
     principal_id: Optional[str] = None
     agent_passport_id: Optional[str] = None
@@ -126,13 +144,14 @@ class AuthContext:
             "principal_id": self.principal_id,
             "agent_passport_id": self.agent_passport_id,
             "signature": self.signature,
-            "key_id": self.key_id
+            "key_id": self.key_id,
         }
 
 
 @dataclass
 class Capability:
     """Agent capability definition"""
+
     name: str
     description: str = ""
     modalities: List[str] = field(default_factory=lambda: ["text"])
@@ -145,6 +164,7 @@ class Capability:
 @dataclass
 class AgentEndpoint:
     """Agent endpoint configuration"""
+
     transport: TransportType
     uri: str
 
@@ -152,6 +172,7 @@ class AgentEndpoint:
 @dataclass
 class AgentManifest:
     """Complete agent registration manifest"""
+
     agent_id: str
     display_name: str
     version: str
@@ -166,6 +187,7 @@ class AgentManifest:
 @dataclass
 class CanonicalEnvelope:
     """Internal routing envelope"""
+
     trace: TraceContext
     auth: AuthContext
     target: Dict[str, Any]
@@ -178,7 +200,7 @@ class CanonicalEnvelope:
             "auth": self.auth.to_dict(),
             "target": self.target,
             "input": self.input,
-            "response": self.response
+            "response": self.response,
         }
 
 
@@ -198,7 +220,10 @@ class ErrorCode(str, Enum):
 
 class FabricError(Exception):
     """Base exception for Fabric errors"""
-    def __init__(self, code: ErrorCode, message: str, details: Optional[Dict[str, Any]] = None):
+
+    def __init__(
+        self, code: ErrorCode, message: str, details: Optional[Dict[str, Any]] = None
+    ):
         self.code = code
         self.message = message
         self.details = details or {}
@@ -210,9 +235,9 @@ class FabricError(Exception):
             "error": {
                 "code": self.code.value,
                 "message": self.message,
-                "details": self.details
+                "details": self.details,
             },
-            "trace": trace.to_dict()
+            "trace": trace.to_dict(),
         }
 
 
@@ -220,20 +245,24 @@ class FabricError(Exception):
 # MCP Request/Response Models
 # ============================================================================
 
+
 class MCPToolCall(BaseModel):
     """MCP tool call request"""
+
     name: str
     arguments: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MCPRequest(BaseModel):
     """MCP protocol request"""
+
     method: str
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
 class MCPResponse(BaseModel):
     """MCP protocol response"""
+
     result: Optional[Dict[str, Any]] = None
     error: Optional[Dict[str, Any]] = None
 
@@ -242,21 +271,24 @@ class MCPResponse(BaseModel):
 # Runtime Adapter Interface
 # ============================================================================
 
+
 class RuntimeAdapter:
     """Base class for agent runtime adapters"""
-    
+
     async def call(self, envelope: CanonicalEnvelope) -> Dict[str, Any]:
         """Execute a synchronous call"""
         raise NotImplementedError
-    
-    async def call_stream(self, envelope: CanonicalEnvelope) -> AsyncIterator[Dict[str, Any]]:
+
+    async def call_stream(
+        self, envelope: CanonicalEnvelope
+    ) -> AsyncIterator[Dict[str, Any]]:
         """Execute a streaming call"""
         raise NotImplementedError
-    
+
     async def health(self) -> AgentStatus:
         """Check agent health"""
         raise NotImplementedError
-    
+
     async def describe(self) -> AgentManifest:
         """Get agent manifest"""
         raise NotImplementedError
@@ -264,18 +296,20 @@ class RuntimeAdapter:
 
 class RuntimeMCP(RuntimeAdapter):
     """Adapter for agents that speak native MCP"""
-    
+
     def __init__(self, agent_id: str, endpoint: AgentEndpoint, manifest: AgentManifest):
         self.agent_id = agent_id
         self.endpoint = endpoint
         self.manifest = manifest
-    
+
     async def call(self, envelope: CanonicalEnvelope) -> Dict[str, Any]:
         """Call MCP agent synchronously"""
         # In production, this would make actual HTTP/WebSocket calls
         # For now, return a mock response
-        logger.info(f"RuntimeMCP.call: {self.agent_id} / {envelope.target['capability']}")
-        
+        logger.info(
+            f"RuntimeMCP.call: {self.agent_id} / {envelope.target['capability']}"
+        )
+
         return {
             "ok": True,
             "trace": envelope.trace.to_dict(),
@@ -283,38 +317,74 @@ class RuntimeMCP(RuntimeAdapter):
                 "answer": f"Mock response from {self.agent_id}",
                 "data": {},
                 "artifacts": [],
-                "citations": []
-            }
+                "citations": [],
+            },
         }
-    
-    async def call_stream(self, envelope: CanonicalEnvelope) -> AsyncIterator[Dict[str, Any]]:
+
+    async def call_stream(
+        self, envelope: CanonicalEnvelope
+    ) -> AsyncIterator[Dict[str, Any]]:
         """Call MCP agent with streaming"""
-        logger.info(f"RuntimeMCP.call_stream: {self.agent_id} / {envelope.target['capability']}")
-        
+        logger.info(
+            f"RuntimeMCP.call_stream: {self.agent_id} / {envelope.target['capability']}"
+        )
+
         # Mock streaming response
         events = [
-            {"event": "status", "data": {"status": "running", "message": "Starting task", "trace": envelope.trace.to_dict()}},
-            {"event": "token", "data": {"text": "Processing ", "trace": envelope.trace.to_dict()}},
-            {"event": "token", "data": {"text": "your ", "trace": envelope.trace.to_dict()}},
-            {"event": "token", "data": {"text": "request...", "trace": envelope.trace.to_dict()}},
-            {"event": "progress", "data": {"percent": 50, "message": "Halfway done", "trace": envelope.trace.to_dict()}},
-            {"event": "token", "data": {"text": " Complete!", "trace": envelope.trace.to_dict()}},
-            {"event": "final", "data": {
-                "ok": True,
-                "result": {"answer": f"Streamed response from {self.agent_id}", "data": {}},
-                "trace": envelope.trace.to_dict()
-            }}
+            {
+                "event": "status",
+                "data": {
+                    "status": "running",
+                    "message": "Starting task",
+                    "trace": envelope.trace.to_dict(),
+                },
+            },
+            {
+                "event": "token",
+                "data": {"text": "Processing ", "trace": envelope.trace.to_dict()},
+            },
+            {
+                "event": "token",
+                "data": {"text": "your ", "trace": envelope.trace.to_dict()},
+            },
+            {
+                "event": "token",
+                "data": {"text": "request...", "trace": envelope.trace.to_dict()},
+            },
+            {
+                "event": "progress",
+                "data": {
+                    "percent": 50,
+                    "message": "Halfway done",
+                    "trace": envelope.trace.to_dict(),
+                },
+            },
+            {
+                "event": "token",
+                "data": {"text": " Complete!", "trace": envelope.trace.to_dict()},
+            },
+            {
+                "event": "final",
+                "data": {
+                    "ok": True,
+                    "result": {
+                        "answer": f"Streamed response from {self.agent_id}",
+                        "data": {},
+                    },
+                    "trace": envelope.trace.to_dict(),
+                },
+            },
         ]
-        
+
         for event in events:
             await asyncio.sleep(0.1)  # Simulate processing time
             yield event
-    
+
     async def health(self) -> AgentStatus:
         """Check agent health"""
         # In production, ping the actual endpoint
         return AgentStatus.ONLINE
-    
+
     async def describe(self) -> AgentManifest:
         """Get agent manifest"""
         return self.manifest
@@ -322,40 +392,50 @@ class RuntimeMCP(RuntimeAdapter):
 
 class RuntimeAgentZero(RuntimeAdapter):
     """Adapter for Agent Zero RFC/FastA2A protocol"""
-    
+
     def __init__(self, agent_id: str, endpoint: AgentEndpoint, manifest: AgentManifest):
         self.agent_id = agent_id
         self.endpoint = endpoint
         self.manifest = manifest
-    
+
     async def call(self, envelope: CanonicalEnvelope) -> Dict[str, Any]:
         """Translate envelope to Agent Zero format and call"""
-        logger.info(f"RuntimeAgentZero.call: {self.agent_id} / {envelope.target['capability']}")
-        
+        logger.info(
+            f"RuntimeAgentZero.call: {self.agent_id} / {envelope.target['capability']}"
+        )
+
         # Mock response
         return {
             "ok": True,
             "trace": envelope.trace.to_dict(),
             "result": {
                 "answer": f"Agent Zero response from {self.agent_id}",
-                "data": {}
-            }
+                "data": {},
+            },
         }
-    
-    async def call_stream(self, envelope: CanonicalEnvelope) -> AsyncIterator[Dict[str, Any]]:
+
+    async def call_stream(
+        self, envelope: CanonicalEnvelope
+    ) -> AsyncIterator[Dict[str, Any]]:
         """Streaming call via Agent Zero"""
         logger.info(f"RuntimeAgentZero.call_stream: {self.agent_id}")
-        
-        yield {"event": "status", "data": {"status": "running", "trace": envelope.trace.to_dict()}}
-        yield {"event": "final", "data": {
-            "ok": True,
-            "result": {"answer": "Agent Zero streamed response"},
-            "trace": envelope.trace.to_dict()
-        }}
-    
+
+        yield {
+            "event": "status",
+            "data": {"status": "running", "trace": envelope.trace.to_dict()},
+        }
+        yield {
+            "event": "final",
+            "data": {
+                "ok": True,
+                "result": {"answer": "Agent Zero streamed response"},
+                "trace": envelope.trace.to_dict(),
+            },
+        }
+
     async def health(self) -> AgentStatus:
         return AgentStatus.ONLINE
-    
+
     async def describe(self) -> AgentManifest:
         return self.manifest
 
@@ -364,48 +444,58 @@ class RuntimeAgentZero(RuntimeAdapter):
 # Agent Registry
 # ============================================================================
 
+
 class AgentRegistry:
     """Agent registration and discovery"""
-    
+
     def __init__(self):
         self.agents: Dict[str, AgentManifest] = {}
         self.adapters: Dict[str, RuntimeAdapter] = {}
-    
+
     def register(self, manifest: AgentManifest, adapter: RuntimeAdapter):
         """Register an agent"""
         self.agents[manifest.agent_id] = manifest
         self.adapters[manifest.agent_id] = adapter
         logger.info(f"Registered agent: {manifest.agent_id} ({manifest.display_name})")
-    
+
     def get_agent(self, agent_id: str) -> Optional[AgentManifest]:
         """Get agent by ID"""
         return self.agents.get(agent_id)
-    
+
     def get_adapter(self, agent_id: str) -> Optional[RuntimeAdapter]:
         """Get runtime adapter for agent"""
         return self.adapters.get(agent_id)
-    
-    def list_agents(self, capability: Optional[str] = None, tag: Optional[str] = None, 
-                   status: Optional[AgentStatus] = None) -> List[AgentManifest]:
+
+    def list_agents(
+        self,
+        capability: Optional[str] = None,
+        tag: Optional[str] = None,
+        status: Optional[AgentStatus] = None,
+    ) -> List[AgentManifest]:
         """List agents with optional filters"""
         agents = list(self.agents.values())
-        
+
         if capability:
-            agents = [a for a in agents if any(c.name == capability for c in a.capabilities)]
-        
+            agents = [
+                a for a in agents if any(c.name == capability for c in a.capabilities)
+            ]
+
         if tag:
             agents = [a for a in agents if tag in a.tags]
-        
+
         if status:
             agents = [a for a in agents if a.status == status]
-        
+
         return agents
-    
+
     def find_by_capability(self, capability: str) -> List[AgentManifest]:
         """Find all agents with a specific capability"""
-        return [a for a in self.agents.values() 
-                if any(c.name == capability for c in a.capabilities)]
-    
+        return [
+            a
+            for a in self.agents.values()
+            if any(c.name == capability for c in a.capabilities)
+        ]
+
     async def update_health_status(self):
         """Update health status for all agents"""
         for agent_id, adapter in self.adapters.items():
@@ -423,59 +513,148 @@ class AgentRegistry:
 # Authentication
 # ============================================================================
 
+
 class AuthService:
     """Authentication and authorization service"""
-    
+
     def __init__(self, psk: Optional[str] = None):
         self.psk = psk or "dev-shared-secret"  # Default for development
-    
+
     def verify_psk(self, token: Optional[str]) -> AuthContext:
         """Verify pre-shared key"""
         if not token:
             raise FabricError(ErrorCode.AUTH_DENIED, "No authentication token provided")
-        
+
         if token != self.psk:
             raise FabricError(ErrorCode.AUTH_INVALID, "Invalid authentication token")
-        
-        return AuthContext(
-            mode=AuthMode.PSK,
-            principal_id="psk-client"
-        )
-    
+
+        return AuthContext(mode=AuthMode.PSK, principal_id="psk-client")
+
     def verify_passport(self, passport: Dict[str, Any]) -> AuthContext:
         """Verify agent passport (future implementation)"""
         # TODO: Implement Ed25519 signature verification
         # TODO: Check expiry
         # TODO: Validate delegation scope
-        
+
         return AuthContext(
             mode=AuthMode.PASSPORT,
             principal_id=passport.get("principal_id"),
             agent_passport_id=passport.get("agent_passport_id"),
             signature=passport.get("signature"),
-            key_id=passport.get("key_id")
+            key_id=passport.get("key_id"),
         )
+
+
+# ============================================================================
+# Agent Registration Store (for dynamic agent registration)
+# ============================================================================
+
+
+class AgentRegistrationStore:
+    """Store for dynamically registered agents"""
+
+    def __init__(self, master_secret: str):
+        self.master_secret = master_secret
+        self.agents: Dict[str, Dict[str, Any]] = {}
+        self.secrets: Dict[str, str] = {}
+
+    def register(
+        self, agent_id: str, description: str, acl_group: str = "default"
+    ) -> Dict[str, Any]:
+        """Register a new agent and return credentials"""
+        if agent_id in self.agents:
+            raise FabricError(ErrorCode.BAD_INPUT, f"Agent already exists: {agent_id}")
+
+        secret = str(uuid.uuid4())
+        redis_user = f"agent_{agent_id}"
+        redis_password = str(uuid.uuid4())[:16]
+
+        self.agents[agent_id] = {
+            "agent_id": agent_id,
+            "description": description,
+            "acl_group": acl_group,
+            "created_at": datetime.utcnow().isoformat(),
+            "last_seen": None,
+        }
+        self.secrets[agent_id] = secret
+
+        return {
+            "success": True,
+            "agent_id": agent_id,
+            "secret": secret,
+            "redis_user": redis_user,
+            "redis_password": redis_password,
+        }
+
+    def get_agent(self, agent_id: str) -> Optional[Dict[str, Any]]:
+        """Get agent by ID"""
+        return self.agents.get(agent_id)
+
+    def list_agents(self) -> List[Dict[str, Any]]:
+        """List all registered agents"""
+        return [
+            {
+                "id": agent_id,
+                "description": info["description"],
+                "acl_group": info["acl_group"],
+                "created_at": info["created_at"],
+                "last_seen": info["last_seen"],
+            }
+            for agent_id, info in self.agents.items()
+        ]
+
+    def verify_agent_secret(self, agent_id: str, secret: str) -> bool:
+        """Verify agent secret"""
+        return self.secrets.get(agent_id) == secret
+
+    def update_last_seen(self, agent_id: str):
+        """Update last seen timestamp"""
+        if agent_id in self.agents:
+            self.agents[agent_id]["last_seen"] = datetime.utcnow().isoformat()
 
 
 # ============================================================================
 # Fabric MCP Server
 # ============================================================================
 
+
 class FabricServer:
     """Main Fabric MCP server"""
-    
-    def __init__(self, registry: AgentRegistry, auth_service: AuthService, redis_url: Optional[str] = None):
+
+    def __init__(
+        self,
+        registry: AgentRegistry,
+        auth_service: AuthService,
+        redis_url: Optional[str] = None,
+        master_secret: Optional[str] = None,
+    ):
         self.registry = registry
         self.auth_service = auth_service
         self.start_time = time.time()
         self.version = "af-mcp-0.1"
-        
+        self.master_secret = master_secret or "master-secret-change-in-production"
+
+        # Agent registration store
+        self.agent_store = AgentRegistrationStore(self.master_secret)
+
+        # Known topics for discovery
+        self.known_topics: set = set()
+
+        # Metrics counters
+        self.metrics = {
+            "messages_sent": 0,
+            "messages_received": 0,
+            "tool_calls": 0,
+            "agent_registrations": 0,
+        }
+
         # Initialize A2A message bus (if Redis available)
         self.message_bus = None
         self.message_mcp = None
         if REDIS_AVAILABLE and redis_url:
             try:
                 import asyncio
+
                 self.message_bus = FabricMessageBus(redis_url=redis_url)
                 self.message_mcp = FabricMessageBusMCP(self.message_bus)
                 logger.info(f"A2A Message Bus initialized: {redis_url}")
@@ -483,19 +662,23 @@ class FabricServer:
                 logger.error(f"Failed to initialize message bus: {e}")
                 self.message_bus = None
                 self.message_mcp = None
-    
-    async def handle_tool_call(self, tool_name: str, arguments: Dict[str, Any], 
-                               auth_token: Optional[str] = None) -> Dict[str, Any]:
+
+    async def handle_tool_call(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        auth_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Handle MCP tool call"""
         trace = TraceContext.create(
             trace_id=arguments.get("trace", {}).get("trace_id"),
-            parent_span_id=arguments.get("trace", {}).get("parent_span_id")
+            parent_span_id=arguments.get("trace", {}).get("parent_span_id"),
         )
-        
+
         try:
             # Authenticate
             auth_ctx = self.auth_service.verify_psk(auth_token)
-            
+
             # Route to appropriate handler
             if tool_name == "fabric.agent.list":
                 return await self._handle_agent_list(arguments, trace, auth_ctx)
@@ -519,34 +702,50 @@ class FabricServer:
             elif tool_name == "fabric.message.receive":
                 return await self._handle_message_receive(arguments, trace, auth_ctx)
             elif tool_name == "fabric.message.acknowledge":
-                return await self._handle_message_acknowledge(arguments, trace, auth_ctx)
+                return await self._handle_message_acknowledge(
+                    arguments, trace, auth_ctx
+                )
             elif tool_name == "fabric.message.publish":
                 return await self._handle_message_publish(arguments, trace, auth_ctx)
             elif tool_name == "fabric.message.queue_status":
                 return await self._handle_queue_status(arguments, trace, auth_ctx)
-            elif tool_name.startswith("fabric.tool.") and tool_name not in ["fabric.tool.list", "fabric.tool.call", "fabric.tool.describe"]:
+            elif tool_name.startswith("fabric.tool.") and tool_name not in [
+                "fabric.tool.list",
+                "fabric.tool.call",
+                "fabric.tool.describe",
+            ]:
                 # Handle direct tool calls like fabric.tool.io.read_file
-                return await self._handle_builtin_tool_direct(tool_name, arguments, trace, auth_ctx)
+                return await self._handle_builtin_tool_direct(
+                    tool_name, arguments, trace, auth_ctx
+                )
             else:
                 raise FabricError(ErrorCode.BAD_INPUT, f"Unknown tool: {tool_name}")
-        
+
         except FabricError as e:
-            logger.error(f"FabricError: {e.code.value} - {e.message}", extra={"mcp_trace_id": trace.trace_id})
+            logger.error(
+                f"FabricError: {e.code.value} - {e.message}",
+                extra={"mcp_trace_id": trace.trace_id},
+            )
             return e.to_dict(trace)
         except Exception as e:
-            logger.exception(f"Unexpected error: {e}", extra={"mcp_trace_id": trace.trace_id})
+            logger.exception(
+                f"Unexpected error: {e}", extra={"mcp_trace_id": trace.trace_id}
+            )
             return FabricError(ErrorCode.INTERNAL_ERROR, str(e)).to_dict(trace)
-    
-    async def _handle_agent_list(self, args: Dict[str, Any], trace: TraceContext, 
-                                 auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_agent_list(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.agent.list"""
         filter_args = args.get("filter", {})
         agents = self.registry.list_agents(
             capability=filter_args.get("capability"),
             tag=filter_args.get("tag"),
-            status=AgentStatus(filter_args["status"]) if filter_args.get("status") else None
+            status=AgentStatus(filter_args["status"])
+            if filter_args.get("status")
+            else None,
         )
-        
+
         return {
             "agents": [
                 {
@@ -556,32 +755,37 @@ class FabricServer:
                     "status": a.status.value,
                     "endpoint": {
                         "transport": a.endpoint.transport.value,
-                        "uri": a.endpoint.uri
-                    } if a.endpoint else None,
+                        "uri": a.endpoint.uri,
+                    }
+                    if a.endpoint
+                    else None,
                     "capabilities": [
                         {
                             "name": c.name,
                             "modalities": c.modalities,
-                            "streaming": c.streaming
-                        } for c in a.capabilities
+                            "streaming": c.streaming,
+                        }
+                        for c in a.capabilities
                     ],
                     "tags": a.tags,
-                    "trust_tier": a.trust_tier.value
-                } for a in agents
+                    "trust_tier": a.trust_tier.value,
+                }
+                for a in agents
             ]
         }
-    
-    async def _handle_agent_describe(self, args: Dict[str, Any], trace: TraceContext,
-                                     auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_agent_describe(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.agent.describe"""
         agent_id = args.get("agent_id")
         if not agent_id:
             raise FabricError(ErrorCode.BAD_INPUT, "agent_id is required")
-        
+
         agent = self.registry.get_agent(agent_id)
         if not agent:
             raise FabricError(ErrorCode.AGENT_NOT_FOUND, f"Agent not found: {agent_id}")
-        
+
         return {
             "agent": {
                 "agent_id": agent.agent_id,
@@ -596,46 +800,56 @@ class FabricServer:
                         "output_schema": c.output_schema,
                         "streaming": c.streaming,
                         "max_timeout_ms": c.max_timeout_ms,
-                        "modalities": c.modalities
-                    } for c in agent.capabilities
+                        "modalities": c.modalities,
+                    }
+                    for c in agent.capabilities
                 ],
                 "endpoint": {
                     "transport": agent.endpoint.transport.value,
-                    "uri": agent.endpoint.uri
-                } if agent.endpoint else None,
+                    "uri": agent.endpoint.uri,
+                }
+                if agent.endpoint
+                else None,
                 "tags": agent.tags,
-                "trust_tier": agent.trust_tier.value
+                "trust_tier": agent.trust_tier.value,
             }
         }
-    
-    async def _handle_call(self, args: Dict[str, Any], trace: TraceContext,
-                          auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_call(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.call (non-streaming path)"""
         agent_id = args.get("agent_id")
         capability = args.get("capability")
         task = args.get("task")
-        
+
         if not all([agent_id, capability, task]):
-            raise FabricError(ErrorCode.BAD_INPUT, "agent_id, capability, and task are required")
-        
+            raise FabricError(
+                ErrorCode.BAD_INPUT, "agent_id, capability, and task are required"
+            )
+
         # Get agent and adapter
         agent = self.registry.get_agent(agent_id)
         if not agent:
             raise FabricError(ErrorCode.AGENT_NOT_FOUND, f"Agent not found: {agent_id}")
-        
+
         if agent.status == AgentStatus.OFFLINE:
             raise FabricError(ErrorCode.AGENT_OFFLINE, f"Agent is offline: {agent_id}")
-        
+
         # Verify capability
         cap = next((c for c in agent.capabilities if c.name == capability), None)
         if not cap:
-            raise FabricError(ErrorCode.CAPABILITY_NOT_FOUND, 
-                            f"Capability not found: {capability} on agent {agent_id}")
-        
+            raise FabricError(
+                ErrorCode.CAPABILITY_NOT_FOUND,
+                f"Capability not found: {capability} on agent {agent_id}",
+            )
+
         adapter = self.registry.get_adapter(agent_id)
         if not adapter:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"No adapter for agent: {agent_id}")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"No adapter for agent: {agent_id}"
+            )
+
         # Build envelope
         envelope = CanonicalEnvelope(
             trace=trace,
@@ -643,237 +857,239 @@ class FabricServer:
             target={
                 "agent_id": agent_id,
                 "capability": capability,
-                "timeout_ms": args.get("timeout_ms", 60000)
+                "timeout_ms": args.get("timeout_ms", 60000),
             },
-            input={
-                "task": task,
-                "context": args.get("context", {}),
-                "attachments": []
-            },
-            response={
-                "stream": args.get("stream", False),
-                "format": "text"
-            }
+            input={"task": task, "context": args.get("context", {}), "attachments": []},
+            response={"stream": args.get("stream", False), "format": "text"},
         )
-        
+
         # Execute call
-        logger.info(f"Executing call: {agent_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
+        logger.info(
+            f"Executing call: {agent_id}.{capability}",
+            extra={"mcp_trace_id": trace.trace_id},
+        )
         result = await adapter.call(envelope)
         return result
-    
-    async def _handle_call_stream(self, args: Dict[str, Any], trace: TraceContext,
-                                  auth: AuthContext) -> AsyncIterator[str]:
+
+    async def _handle_call_stream(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> AsyncIterator[str]:
         """Handle fabric.call (streaming path)"""
         agent_id = args.get("agent_id")
         capability = args.get("capability")
-        
+
         agent = self.registry.get_agent(agent_id)
         if not agent:
             raise FabricError(ErrorCode.AGENT_NOT_FOUND, f"Agent not found: {agent_id}")
-        
+
         adapter = self.registry.get_adapter(agent_id)
         if not adapter:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"No adapter for agent: {agent_id}")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"No adapter for agent: {agent_id}"
+            )
+
         envelope = CanonicalEnvelope(
             trace=trace,
             auth=auth,
             target={
                 "agent_id": agent_id,
                 "capability": capability,
-                "timeout_ms": args.get("timeout_ms", 60000)
+                "timeout_ms": args.get("timeout_ms", 60000),
             },
             input={
                 "task": args.get("task", ""),
                 "context": args.get("context", {}),
-                "attachments": []
+                "attachments": [],
             },
-            response={
-                "stream": True,
-                "format": "text"
-            }
+            response={"stream": True, "format": "text"},
         )
-        
+
         # Stream events
         async for event in adapter.call_stream(envelope):
             yield f"data: {json.dumps(event)}\n\n"
-    
-    async def _handle_route_preview(self, args: Dict[str, Any], trace: TraceContext,
-                                   auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_route_preview(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.route.preview"""
         agent_id = args.get("agent_id")
         capability = args.get("capability")
-        
+
         if not all([agent_id, capability]):
-            raise FabricError(ErrorCode.BAD_INPUT, "agent_id and capability are required")
-        
+            raise FabricError(
+                ErrorCode.BAD_INPUT, "agent_id and capability are required"
+            )
+
         agent = self.registry.get_agent(agent_id)
         if not agent:
             raise FabricError(ErrorCode.AGENT_NOT_FOUND, f"Agent not found: {agent_id}")
-        
+
         # Find fallbacks
         fallbacks = []
         other_agents = self.registry.find_by_capability(capability)
         for other in other_agents:
             if other.agent_id != agent_id:
-                fallbacks.append({
-                    "agent_id": other.agent_id,
-                    "reason": f"Same capability: {capability}",
-                    "priority": 1
-                })
-        
+                fallbacks.append(
+                    {
+                        "agent_id": other.agent_id,
+                        "reason": f"Same capability: {capability}",
+                        "priority": 1,
+                    }
+                )
+
         return {
             "selected_runtime": {
-                "transport": agent.endpoint.transport.value if agent.endpoint else "unknown",
+                "transport": agent.endpoint.transport.value
+                if agent.endpoint
+                else "unknown",
                 "uri": agent.endpoint.uri if agent.endpoint else "unknown",
-                "adapter": "RuntimeMCP"  # Simplified for now
+                "adapter": "RuntimeMCP",  # Simplified for now
             },
-            "policy": {
-                "allowed": True,
-                "reason": "ok"
-            },
-            "fallbacks": fallbacks
+            "policy": {"allowed": True, "reason": "ok"},
+            "fallbacks": fallbacks,
         }
-    
-    async def _handle_health(self, args: Dict[str, Any], trace: TraceContext,
-                            auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_health(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.health"""
         await self.registry.update_health_status()
-        
+
         agents = self.registry.list_agents()
         online = sum(1 for a in agents if a.status == AgentStatus.ONLINE)
         offline = sum(1 for a in agents if a.status == AgentStatus.OFFLINE)
         degraded = sum(1 for a in agents if a.status == AgentStatus.DEGRADED)
-        
+
         builtin_tools = list_builtin_tools()
-        
+
         return {
             "ok": True,
             "registry": "ok",
-            "runtimes": {
-                "online": online,
-                "offline": offline,
-                "degraded": degraded
-            },
+            "runtimes": {"online": online, "offline": offline, "degraded": degraded},
             "tools": {
                 "builtin_count": len(builtin_tools),
-                "available": builtin_tools[:10] + ["..."] if len(builtin_tools) > 10 else builtin_tools
+                "available": builtin_tools[:10] + ["..."]
+                if len(builtin_tools) > 10
+                else builtin_tools,
             },
             "version": self.version,
-            "uptime_seconds": int(time.time() - self.start_time)
+            "uptime_seconds": int(time.time() - self.start_time),
         }
-    
+
     # ============================================================================
     # Built-in Tool Handlers
     # ============================================================================
-    
-    async def _handle_tool_list(self, args: Dict[str, Any], trace: TraceContext,
-                               auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_tool_list(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.tool.list - list all available tools"""
         filter_category = args.get("category")
         filter_provider = args.get("provider")  # 'builtin' or 'agent'
-        
+
         tools = []
-        
+
         # Add built-in tools
         if not filter_provider or filter_provider == "builtin":
             for tool_id in list_builtin_tools():
-                category = tool_id.split('.')[0] if '.' in tool_id else 'general'
+                category = tool_id.split(".")[0] if "." in tool_id else "general"
                 if filter_category and category != filter_category:
                     continue
-                    
-                tools.append({
-                    "tool_id": tool_id,
-                    "provider": "builtin",
-                    "category": category,
-                    "available": True
-                })
-        
+
+                tools.append(
+                    {
+                        "tool_id": tool_id,
+                        "provider": "builtin",
+                        "category": category,
+                        "available": True,
+                    }
+                )
+
         # Add agent-as-tools
         if not filter_provider or filter_provider == "agent":
             agents = self.registry.list_agents()
             for agent in agents:
                 for cap in agent.capabilities:
-                    tools.append({
-                        "tool_id": f"agent.{agent.agent_id}.{cap.name}",
-                        "provider": "agent",
-                        "category": f"agent:{agent.agent_id}",
-                        "agent_id": agent.agent_id,
-                        "capability": cap.name,
-                        "streaming": cap.streaming
-                    })
-        
-        return {
-            "tools": tools,
-            "count": len(tools)
-        }
-    
-    async def _handle_tool_call(self, args: Dict[str, Any], trace: TraceContext,
-                               auth: AuthContext) -> Dict[str, Any]:
+                    tools.append(
+                        {
+                            "tool_id": f"agent.{agent.agent_id}.{cap.name}",
+                            "provider": "agent",
+                            "category": f"agent:{agent.agent_id}",
+                            "agent_id": agent.agent_id,
+                            "capability": cap.name,
+                            "streaming": cap.streaming,
+                        }
+                    )
+
+        return {"tools": tools, "count": len(tools)}
+
+    async def _handle_tool_call(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.tool.call - execute a built-in tool"""
         tool_id = args.get("tool_id")
         capability = args.get("capability", "")
         parameters = args.get("parameters", {})
-        
+
         if not tool_id:
             raise FabricError(ErrorCode.BAD_INPUT, "tool_id is required")
-        
+
         # Check if it's a built-in tool (legacy dict or new registry)
         if tool_id in BUILTIN_TOOLS or BaseTool.get_tool_class(tool_id):
-            logger.info(f"Executing built-in tool: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
-            
+            logger.info(
+                f"Executing built-in tool: {tool_id}.{capability}",
+                extra={"mcp_trace_id": trace.trace_id},
+            )
+
             # Add trace context to parameters
-            parameters['_trace'] = {
+            parameters["_trace"] = {
                 "trace_id": trace.trace_id,
-                "span_id": trace.span_id
+                "span_id": trace.span_id,
             }
-            
+
             result = await execute_tool(tool_id, capability, parameters)
-            
+
             # Add trace to result
             if isinstance(result, dict):
                 result["trace"] = trace.to_dict()
-            
+
             return result
-        
+
         # Check if it's an agent capability
         if tool_id.startswith("agent."):
             parts = tool_id.split(".")
             if len(parts) >= 3:
                 agent_id = parts[1]
                 cap_name = parts[2]
-                
+
                 # Delegate to fabric.call
                 call_args = {
                     "agent_id": agent_id,
                     "capability": cap_name,
                     "task": parameters.get("task", ""),
                     "context": parameters.get("context", {}),
-                    "stream": args.get("stream", False)
+                    "stream": args.get("stream", False),
                 }
                 return await self._handle_call(call_args, trace, auth)
-        
+
         raise FabricError(ErrorCode.BAD_INPUT, f"Unknown tool: {tool_id}")
-    
-    async def _handle_tool_describe(self, args: Dict[str, Any], trace: TraceContext,
-                                   auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_tool_describe(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.tool.describe - get tool details"""
         tool_id = args.get("tool_id")
-        
+
         if not tool_id:
             raise FabricError(ErrorCode.BAD_INPUT, "tool_id is required")
-        
+
         # Check built-in tools
         tool_info = get_tool_info(tool_id)
         if tool_info:
             return {
-                "tool": {
-                    "tool_id": tool_id,
-                    "provider": "builtin",
-                    "info": tool_info
-                }
+                "tool": {"tool_id": tool_id, "provider": "builtin", "info": tool_info}
             }
-        
+
         # Check if it's an agent reference
         if tool_id.startswith("agent."):
             parts = tool_id.split(".")
@@ -891,15 +1107,20 @@ class FabricServer:
                                 "capabilities": [
                                     {"name": c.name, "description": c.description}
                                     for c in agent.capabilities
-                                ]
-                            }
+                                ],
+                            },
                         }
                     }
-        
+
         raise FabricError(ErrorCode.BAD_INPUT, f"Tool not found: {tool_id}")
-    
-    async def _handle_builtin_tool_direct(self, tool_name: str, args: Dict[str, Any], 
-                                         trace: TraceContext, auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_builtin_tool_direct(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        trace: TraceContext,
+        auth: AuthContext,
+    ) -> Dict[str, Any]:
         """Handle direct tool calls like fabric.tool.io.read_file"""
         # Parse tool_name: fabric.tool.<category>.<action>
         # e.g., fabric.tool.io.read_file -> category='io', action='read_file'
@@ -908,7 +1129,7 @@ class FabricServer:
             category = parts[2]
             action = parts[3]
             tool_id = f"{category}.{action}"
-            
+
             if tool_id in BUILTIN_TOOLS or BaseTool.get_tool_class(tool_id):
                 # Determine capability from tool definition
                 if tool_id in BUILTIN_TOOLS:
@@ -916,7 +1137,7 @@ class FabricServer:
                 else:
                     tool_class = BaseTool.get_tool_class(tool_id)
                     method_name = None
-                
+
                 # Map method name to capability name
                 capability_map = {
                     "read": "read",
@@ -939,109 +1160,332 @@ class FabricServer:
                     "hash": "hash",
                     "base64_encode": "base64_encode",
                     "url_encode": "url_encode",
-                    "markdown_process": "markdown_process"
+                    "markdown_process": "markdown_process",
                 }
-                
+
                 if method_name:
                     capability = capability_map.get(method_name, method_name)
                 else:
                     # New BaseTool system - get first capability from tool class
                     capability = next(iter(tool_class.CAPABILITIES.keys()), None)
-                
-                logger.info(f"Executing direct tool call: {tool_id}.{capability}", extra={"mcp_trace_id": trace.trace_id})
-                
+
+                logger.info(
+                    f"Executing direct tool call: {tool_id}.{capability}",
+                    extra={"mcp_trace_id": trace.trace_id},
+                )
+
                 result = await execute_tool(tool_id, capability, args)
-                
+
                 if isinstance(result, dict):
                     result["trace"] = trace.to_dict()
-                
+
                 return result
-        
+
         raise FabricError(ErrorCode.BAD_INPUT, f"Unknown built-in tool: {tool_name}")
-    
+
     # ============================================================================
     # A2A Async Messaging Handlers
     # ============================================================================
-    
-    async def _handle_message_send(self, args: Dict[str, Any], trace: TraceContext,
-                                   auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_message_send(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.message.send - Send async message to agent"""
         if not self.message_mcp:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR,
+                "A2A messaging not available - Redis not configured",
+            )
+
         try:
             result = await self.message_mcp.send(**args)
             result["trace"] = trace.to_dict()
             return result
         except Exception as e:
-            logger.error(f"Message send failed: {e}", extra={"mcp_trace_id": trace.trace_id})
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to send message: {str(e)}")
-    
-    async def _handle_message_receive(self, args: Dict[str, Any], trace: TraceContext,
-                                      auth: AuthContext) -> Dict[str, Any]:
+            logger.error(
+                f"Message send failed: {e}", extra={"mcp_trace_id": trace.trace_id}
+            )
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"Failed to send message: {str(e)}"
+            )
+
+    async def _handle_message_receive(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.message.receive - Receive messages for agent"""
         if not self.message_mcp:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR,
+                "A2A messaging not available - Redis not configured",
+            )
+
         try:
             result = await self.message_mcp.receive(**args)
             result["trace"] = trace.to_dict()
             return result
         except Exception as e:
-            logger.error(f"Message receive failed: {e}", extra={"mcp_trace_id": trace.trace_id})
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to receive messages: {str(e)}")
-    
-    async def _handle_message_acknowledge(self, args: Dict[str, Any], trace: TraceContext,
-                                          auth: AuthContext) -> Dict[str, Any]:
+            logger.error(
+                f"Message receive failed: {e}", extra={"mcp_trace_id": trace.trace_id}
+            )
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"Failed to receive messages: {str(e)}"
+            )
+
+    async def _handle_message_acknowledge(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.message.acknowledge - Ack message processing"""
         if not self.message_mcp:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR,
+                "A2A messaging not available - Redis not configured",
+            )
+
         try:
             result = await self.message_mcp.acknowledge(**args)
             result["trace"] = trace.to_dict()
             return result
         except Exception as e:
-            logger.error(f"Message acknowledge failed: {e}", extra={"mcp_trace_id": trace.trace_id})
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to acknowledge: {str(e)}")
-    
-    async def _handle_message_publish(self, args: Dict[str, Any], trace: TraceContext,
-                                      auth: AuthContext) -> Dict[str, Any]:
+            logger.error(
+                f"Message acknowledge failed: {e}",
+                extra={"mcp_trace_id": trace.trace_id},
+            )
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"Failed to acknowledge: {str(e)}"
+            )
+
+    async def _handle_message_publish(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.message.publish - Publish to topic"""
         if not self.message_mcp:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR,
+                "A2A messaging not available - Redis not configured",
+            )
+
         try:
             result = await self.message_mcp.publish(**args)
             result["trace"] = trace.to_dict()
             return result
         except Exception as e:
-            logger.error(f"Message publish failed: {e}", extra={"mcp_trace_id": trace.trace_id})
+            logger.error(
+                f"Message publish failed: {e}", extra={"mcp_trace_id": trace.trace_id}
+            )
             raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to publish: {str(e)}")
-    
-    async def _handle_queue_status(self, args: Dict[str, Any], trace: TraceContext,
-                                   auth: AuthContext) -> Dict[str, Any]:
+
+    async def _handle_queue_status(
+        self, args: Dict[str, Any], trace: TraceContext, auth: AuthContext
+    ) -> Dict[str, Any]:
         """Handle fabric.message.queue_status - Get queue depth"""
         if not self.message_mcp:
-            raise FabricError(ErrorCode.INTERNAL_ERROR, "A2A messaging not available - Redis not configured")
-        
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR,
+                "A2A messaging not available - Redis not configured",
+            )
+
         try:
             result = await self.message_mcp.queue_status(**args)
             result["trace"] = trace.to_dict()
             return result
         except Exception as e:
-            logger.error(f"Queue status failed: {e}", extra={"mcp_trace_id": trace.trace_id})
-            raise FabricError(ErrorCode.INTERNAL_ERROR, f"Failed to get queue status: {str(e)}")
+            logger.error(
+                f"Queue status failed: {e}", extra={"mcp_trace_id": trace.trace_id}
+            )
+            raise FabricError(
+                ErrorCode.INTERNAL_ERROR, f"Failed to get queue status: {str(e)}"
+            )
+
+    # ============================================================================
+    # REST Endpoint Handlers
+    # ============================================================================
+
+    async def _handle_register_agent(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle /mcp/register_agent - Register a new agent"""
+        agent_id = args.get("agent_id")
+        description = args.get("description", "")
+        acl_group = args.get("acl_group", "default")
+
+        if not agent_id:
+            raise FabricError(ErrorCode.BAD_INPUT, "agent_id is required")
+
+        if not re.match(r"^[a-zA-Z0-9_\-]+$", agent_id):
+            raise FabricError(
+                ErrorCode.BAD_INPUT,
+                "agent_id must be alphanumeric with underscores/hyphens",
+            )
+
+        result = self.agent_store.register(agent_id, description, acl_group)
+        self.metrics["agent_registrations"] += 1
+        return result
+
+    async def _handle_mcp_list_agents(self) -> Dict[str, Any]:
+        """Handle /mcp/list_agents - List all registered agents"""
+        agents = self.agent_store.list_agents()
+        return {"agents": agents}
+
+    async def _handle_mcp_list_tools(self) -> Dict[str, Any]:
+        """Handle /mcp/list_tools - List all available tools"""
+        tools = []
+
+        for tool_id in BaseTool.list_tools():
+            tool_class = BaseTool.get_tool_class(tool_id)
+            if tool_class:
+                capabilities = list(tool_class.CAPABILITIES.keys())
+                tools.append(
+                    {
+                        "id": tool_id,
+                        "capability": capabilities[0] if capabilities else "",
+                        "parameters": getattr(tool_class, "PARAMETERS", {}),
+                    }
+                )
+
+        for tool_id in list_builtin_tools():
+            if not any(t["id"] == tool_id for t in tools):
+                tools.append({"id": tool_id, "capability": "", "parameters": {}})
+
+        return {"tools": tools}
+
+    async def _handle_mcp_list_topics(self) -> Dict[str, Any]:
+        """Handle /mcp/list_topics - List all known topics"""
+        topics = list(self.known_topics)
+        return {"topics": list(topics)}
+
+    async def _handle_mcp_health(self) -> Dict[str, Any]:
+        """Handle /mcp/health - System health check"""
+        await self.registry.update_health_status()
+
+        agents = self.registry.list_agents()
+        online = sum(1 for a in agents if a.status == AgentStatus.ONLINE)
+        offline = sum(1 for a in agents if a.status == AgentStatus.OFFLINE)
+        degraded = sum(1 for a in agents if a.status == AgentStatus.DEGRADED)
+
+        redis_status = "ok" if self.message_bus else "error"
+
+        queue_depths = {}
+        if self.message_mcp:
+            try:
+                registered_agents = self.agent_store.list_agents()
+                for agent in registered_agents:
+                    agent_id = agent.get("id")
+                    if agent_id:
+                        status = await self.message_mcp.queue_status(
+                            {"agent_id": agent_id}
+                        )
+                        queue_depths[agent_id] = status.get("depth", 0)
+            except Exception:
+                pass
+
+        builtin_tools = list_builtin_tools()
+
+        return {
+            "redis": redis_status,
+            "queues": queue_depths,
+            "tools": {t: "ok" for t in builtin_tools[:20]},
+            "agents": {"online": online, "offline": offline, "degraded": degraded},
+            "version": self.version,
+            "uptime_seconds": int(time.time() - self.start_time),
+        }
+
+    async def _handle_mcp_metrics(self) -> str:
+        """Handle /mcp/metrics - Prometheus-style metrics"""
+        lines = [
+            "# HELP fabric_messages_sent_total Total messages sent via message bus",
+            "# TYPE fabric_messages_sent_total counter",
+            f"fabric_messages_sent_total {self.metrics['messages_sent']}",
+            "# HELP fabric_messages_received_total Total messages received from message bus",
+            "# TYPE fabric_messages_received_total counter",
+            f"fabric_messages_received_total {self.metrics['messages_received']}",
+            "# HELP fabric_tool_calls_total Total tool calls executed",
+            "# TYPE fabric_tool_calls_total counter",
+            f"fabric_tool_calls_total {self.metrics['tool_calls']}",
+            "# HELP fabric_agent_registrations_total Total agent registrations",
+            "# TYPE fabric_agent_registrations_total counter",
+            f"fabric_agent_registrations_total {self.metrics['agent_registrations']}",
+            "# HELP fabric_uptime_seconds Server uptime in seconds",
+            "# TYPE fabric_uptime_seconds gauge",
+            f"fabric_uptime_seconds {int(time.time() - self.start_time)}",
+        ]
+
+        agents = self.registry.list_agents()
+        for agent in agents:
+            lines.append(f"# HELP fabric_agent_status Status of agent {agent.agent_id}")
+            lines.append(f"# TYPE fabric_agent_status gauge")
+            status_val = 1 if agent.status == AgentStatus.ONLINE else 0
+            lines.append(
+                f'fabric_agent_status{{agent="{agent.agent_id}"}} {status_val}'
+            )
+
+        return "\n".join(lines)
+
+    async def _handle_mcp_get_agent(self, agent_id: str) -> Dict[str, Any]:
+        """Handle /mcp/agent/{agent_id} - Get agent details"""
+        agent = self.agent_store.get_agent(agent_id)
+        if not agent:
+            raise FabricError(ErrorCode.AGENT_NOT_FOUND, f"Agent not found: {agent_id}")
+
+        return {
+            "id": agent["agent_id"],
+            "description": agent["description"],
+            "acl_group": agent["acl_group"],
+            "created_at": agent["created_at"],
+            "last_seen": agent["last_seen"],
+        }
+
+    def get_openapi_spec(self) -> Dict[str, Any]:
+        """Generate OpenAPI 3.0 spec"""
+        return {
+            "openapi": "3.0.3",
+            "info": {
+                "title": "MCPFabric API",
+                "description": "The Message-Centric Protocol Fabric (MCPFabric) is a sovereign, async, agent-to-agent (A2A) communication OS.",
+                "version": "1.0.0",
+            },
+            "servers": [
+                {"url": "https://MCPFabric.space", "description": "Production"},
+                {"url": "https://fabric.perceptor.us", "description": "Test/Dev"},
+            ],
+            "paths": {
+                "/mcp/call": {
+                    "post": {
+                        "summary": "Invoke a system function",
+                        "requestBody": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {"type": "string"},
+                                            "arguments": {"type": "object"},
+                                        },
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+                "/mcp/register_agent": {"post": {"summary": "Register a new agent"}},
+                "/mcp/list_agents": {"get": {"summary": "List all registered agents"}},
+                "/mcp/list_tools": {"get": {"summary": "List all available tools"}},
+                "/mcp/list_topics": {
+                    "get": {"summary": "List all published message topics"}
+                },
+                "/mcp/health": {"get": {"summary": "System health check"}},
+                "/mcp/metrics": {"get": {"summary": "Prometheus metrics endpoint"}},
+                "/mcp/docs/json": {"get": {"summary": "Raw OpenAPI 3.0 spec"}},
+            },
+        }
 
 
 # ============================================================================
 # FastAPI HTTP Transport
 # ============================================================================
 
+
 def create_http_app(fabric: FabricServer) -> FastAPI:
     """Create FastAPI application for HTTP transport"""
     app = FastAPI(title="Fabric MCP Server", version=fabric.version)
-    
+
     @app.post("/mcp/call")
     async def mcp_call(request: Request):
         """MCP tool call endpoint"""
@@ -1049,7 +1493,7 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
         tool_name = body.get("name")
         arguments = body.get("arguments", {})
         auth_token = request.headers.get("Authorization", "").replace("Bearer ", "")
-        
+
         # Check if streaming is requested
         if arguments.get("stream"):
             trace = TraceContext.create()
@@ -1057,19 +1501,81 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
                 auth_ctx = fabric.auth_service.verify_psk(auth_token)
                 return StreamingResponse(
                     fabric._handle_call_stream(arguments, trace, auth_ctx),
-                    media_type="text/event-stream"
+                    media_type="text/event-stream",
                 )
             except FabricError as e:
                 return e.to_dict(trace)
-        
+
         result = await fabric.handle_tool_call(tool_name, arguments, auth_token)
         return result
-    
+
+    @app.post("/mcp/register_agent")
+    async def register_agent(request: Request):
+        """Register a new agent"""
+        body = await request.json()
+        master_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+        if master_token != fabric.master_secret:
+            raise HTTPException(status_code=403, detail="Invalid master secret")
+
+        result = await fabric._handle_register_agent(body)
+        return result
+
+    @app.get("/mcp/list_agents")
+    async def list_agents(request: Request):
+        """List all registered agents"""
+        auth_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+
+        # Allow access with any valid agent secret or master secret
+        agents = fabric.agent_store.list_agents()
+        return {"agents": agents}
+
+    @app.get("/mcp/list_tools")
+    async def list_tools():
+        """List all available tools"""
+        result = await fabric._handle_mcp_list_tools()
+        return result
+
+    @app.get("/mcp/list_topics")
+    async def list_topics():
+        """List all published message topics"""
+        result = await fabric._handle_mcp_list_topics()
+        return result
+
+    @app.get("/mcp/health")
+    async def mcp_health():
+        """System health check"""
+        result = await fabric._handle_mcp_health()
+        return result
+
+    @app.get("/mcp/metrics")
+    async def metrics():
+        """Prometheus metrics endpoint"""
+        result = await fabric._handle_mcp_metrics()
+        return Response(content=result, media_type="text/plain")
+
+    @app.get("/mcp/docs/json")
+    async def docs_json():
+        """Raw OpenAPI 3.0 spec"""
+        spec = fabric.get_openapi_spec()
+        return spec
+
+    @app.get("/mcp/docs")
+    async def docs():
+        """OpenAPI Swagger UI redirect"""
+        return RedirectResponse(url="/docs", status_code=301)
+
+    @app.get("/mcp/agent/{agent_id}")
+    async def get_agent(agent_id: str):
+        """Get details of a specific agent"""
+        result = await fabric._handle_mcp_get_agent(agent_id)
+        return result
+
     @app.get("/health")
     async def health():
         """Simple health check"""
         return {"status": "ok", "version": fabric.version}
-    
+
     return app
 
 
@@ -1077,10 +1583,11 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
 # STDIO Transport
 # ============================================================================
 
+
 async def stdio_server(fabric: FabricServer):
     """Run MCP server over stdio"""
     logger.info("Starting Fabric MCP server on stdio")
-    
+
     async def read_stdin():
         loop = asyncio.get_event_loop()
         while True:
@@ -1088,27 +1595,24 @@ async def stdio_server(fabric: FabricServer):
             if not line:
                 break
             yield line.strip()
-    
+
     async for line in read_stdin():
         if not line:
             continue
-        
+
         try:
             request = json.loads(line)
             tool_name = request.get("name")
             arguments = request.get("arguments", {})
-            
+
             result = await fabric.handle_tool_call(tool_name, arguments)
             print(json.dumps(result), flush=True)
-        
+
         except Exception as e:
             logger.exception(f"Error processing request: {e}")
             error_response = {
                 "ok": False,
-                "error": {
-                    "code": "INTERNAL_ERROR",
-                    "message": str(e)
-                }
+                "error": {"code": "INTERNAL_ERROR", "message": str(e)},
             }
             print(json.dumps(error_response), flush=True)
 
@@ -1117,34 +1621,37 @@ async def stdio_server(fabric: FabricServer):
 # Main Entry Point
 # ============================================================================
 
+
 def load_registry_from_yaml(registry: AgentRegistry, yaml_path: str):
     """Load agents from YAML configuration"""
     import yaml
-    
-    with open(yaml_path, 'r') as f:
+
+    with open(yaml_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     for agent_config in config.get("agents", []):
         # Build capabilities
         capabilities = []
         for cap_config in agent_config.get("capabilities", []):
-            capabilities.append(Capability(
-                name=cap_config["name"],
-                description=cap_config.get("description", ""),
-                modalities=cap_config.get("modalities", ["text"]),
-                streaming=cap_config.get("streaming", False),
-                input_schema=cap_config.get("input_schema", {}),
-                output_schema=cap_config.get("output_schema", {}),
-                max_timeout_ms=cap_config.get("max_timeout_ms", 60000)
-            ))
-        
+            capabilities.append(
+                Capability(
+                    name=cap_config["name"],
+                    description=cap_config.get("description", ""),
+                    modalities=cap_config.get("modalities", ["text"]),
+                    streaming=cap_config.get("streaming", False),
+                    input_schema=cap_config.get("input_schema", {}),
+                    output_schema=cap_config.get("output_schema", {}),
+                    max_timeout_ms=cap_config.get("max_timeout_ms", 60000),
+                )
+            )
+
         # Build endpoint
         endpoint_config = agent_config.get("endpoint", {})
         endpoint = AgentEndpoint(
             transport=TransportType(endpoint_config.get("transport", "http")),
-            uri=endpoint_config.get("uri", "")
+            uri=endpoint_config.get("uri", ""),
         )
-        
+
         # Build manifest
         manifest = AgentManifest(
             agent_id=agent_config["agent_id"],
@@ -1155,9 +1662,9 @@ def load_registry_from_yaml(registry: AgentRegistry, yaml_path: str):
             endpoint=endpoint,
             tags=agent_config.get("tags", []),
             trust_tier=TrustTier(agent_config.get("trust_tier", "org")),
-            status=AgentStatus.ONLINE
+            status=AgentStatus.ONLINE,
         )
-        
+
         # Create adapter based on runtime type
         runtime_type = agent_config.get("runtime", "mcp")
         if runtime_type == "mcp":
@@ -1166,7 +1673,7 @@ def load_registry_from_yaml(registry: AgentRegistry, yaml_path: str):
             adapter = RuntimeAgentZero(manifest.agent_id, endpoint, manifest)
         else:
             adapter = RuntimeMCP(manifest.agent_id, endpoint, manifest)
-        
+
         registry.register(manifest, adapter)
 
 
@@ -1174,36 +1681,48 @@ async def main():
     """Main entry point"""
     import argparse
     import os
-    
+
     parser = argparse.ArgumentParser(description="Fabric MCP Server")
-    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio",
-                       help="Transport protocol")
-    parser.add_argument("--port", type=int, default=8000,
-                       help="HTTP port (only for http transport)")
-    parser.add_argument("--config", default="agents.yaml",
-                       help="Path to agents configuration YAML")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "http"],
+        default="stdio",
+        help="Transport protocol",
+    )
+    parser.add_argument(
+        "--port", type=int, default=8000, help="HTTP port (only for http transport)"
+    )
+    parser.add_argument(
+        "--config", default="agents.yaml", help="Path to agents configuration YAML"
+    )
     parser.add_argument("--psk", help="Pre-shared key for authentication")
-    parser.add_argument("--redis-url", default=os.getenv("REDIS_URL"),
-                       help="Redis URL for A2A messaging (default: REDIS_URL env var)")
-    
+    parser.add_argument(
+        "--redis-url",
+        default=os.getenv("REDIS_URL"),
+        help="Redis URL for A2A messaging (default: REDIS_URL env var)",
+    )
+
     args = parser.parse_args()
-    
+
     # Initialize components
     registry = AgentRegistry()
     auth_service = AuthService(psk=args.psk)
     fabric = FabricServer(registry, auth_service, redis_url=args.redis_url)
-    
+
     # Load agents from config
     try:
         load_registry_from_yaml(registry, args.config)
     except FileNotFoundError:
-        logger.warning(f"Config file not found: {args.config}, starting with empty registry")
-    
+        logger.warning(
+            f"Config file not found: {args.config}, starting with empty registry"
+        )
+
     # Start server
     if args.transport == "stdio":
         await stdio_server(fabric)
     else:
         import uvicorn
+
         app = create_http_app(fabric)
         config = uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="info")
         server = uvicorn.Server(config)

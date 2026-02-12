@@ -44,11 +44,11 @@ services:
       - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
 
     healthcheck:
-      test: ["CMD","redis-cli", "ping"]
+      test: ["CMD-SHELL","redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 12
-      start_period: 40s
+      start_period: 30s
 
     networks:
       - fabric-network

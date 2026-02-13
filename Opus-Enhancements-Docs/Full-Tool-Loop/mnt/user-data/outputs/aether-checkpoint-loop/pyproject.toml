@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "aether-checkpoint"
+version = "1.0.0"
+description = "Infinite Execution Loop with Context Checkpointing for LLM Agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Cory / AetherPro Technologies LLC"}]
+
+keywords = ["llm", "agents", "checkpointing", "memory", "agentic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29.0"]
+redis = ["redis>=5.0.0"]
+weaviate = ["weaviate-client>=4.0.0"]
+all = ["asyncpg>=0.29.0", "redis>=5.0.0", "weaviate-client>=4.0.0"]
+
+[tool.setuptools.packages.find]
+include = ["aether_checkpoint*"]

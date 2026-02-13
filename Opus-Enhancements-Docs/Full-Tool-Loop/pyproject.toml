@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "aether-checkpoint"
+version = "1.0.0"
+description = "Infinite Execution Engine - Checkpointed episodic execution for LLM agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Proprietary"}
+authors = [{name = "AetherPro Technologies LLC"}]
+
+dependencies = []
+
+[project.optional-dependencies]
+redis = ["redis>=5.0"]
+postgres = ["psycopg2-binary>=2.9"]
+weaviate = ["weaviate-client>=3.0"]
+all = ["redis>=5.0", "psycopg2-binary>=2.9", "weaviate-client>=3.0"]
+
+[tool.setuptools.packages.find]
+include = ["aether_checkpoint*"]

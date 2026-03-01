@@ -80,9 +80,9 @@ class LLMAgent:
 
     def __init__(
         self,
-        api_base: str = "http://localhost:8000/v1",  # Your vLLM / inference endpoint
-        model: str = "apriel-1.5-15b-thinker",       # Your model
-        api_key: str = "not-needed",                   # For vLLM, usually not needed
+        api_base: str = "https://api.blackboxaudio.tech/v1",  # Your vLLM / inference endpoint
+        model: str = "qwen3.5-122",       # Your model
+        api_key: str = "sk-aether-master-pro",                   # For vLLM, usually not needed
     ):
         self.api_base = api_base.rstrip("/")
         self.model = model
@@ -236,20 +236,21 @@ def main():
 
     # === CONFIGURATION ===
     # Auto-configure based on your model's context window
-    config = MemoryConfig.for_model("apriel-1.5-15b-thinker")
+    config = MemoryConfig.for_model("qwen3.5-122")
 
     # Override with production backends when ready
-    # config.working_memory_backend = StorageBackend.REDIS
-    # config.episodic_memory_backend = StorageBackend.POSTGRES
-    # config.semantic_memory_backend = StorageBackend.WEAVIATE
-    # config.redis_url = "redis://localhost:6379/0"
-    # config.postgres_url = "postgresql://localhost:5432/aether_checkpoints"
-    # config.weaviate_url = "http://localhost:8080"
+    config.working_memory_backend = StorageBackend.REDIS
+    config.episodic_memory_backend = StorageBackend.POSTGRES
+    config.semantic_memory_backend = StorageBackend.WEAVIATE
+    config.redis_url = "redis://100.87.16.38:6379/0"
+    config.postgres_url = "postgresql://fabric:fabric_fabic_a2a_mcp_aetherpro_2026@100.87.16.38:5440/aether_checkpoints"
+    config.weaviate_url = "http://100.87.16.38:8080"
 
     # === AGENT ===
     agent = LLMAgent(
-        api_base=os.getenv("VLLM_API_BASE", "http://localhost:8000/v1"),
-        model=os.getenv("MODEL_NAME", "apriel-1.5-15b-thinker"),
+        api_base=os.getenv("VLLM_API_BASE", "https://api.blackboxaudio.tech/v1"),
+        model=os.getenv("MODEL_NAME", "qwen3.5-122"),
+        api_key=os.getenv("sk-aether-master-pro"),
     )
 
     # === EVENT HANDLER (optional monitoring) ===

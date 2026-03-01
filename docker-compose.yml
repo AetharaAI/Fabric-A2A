@@ -1,75 +1,6 @@
-version: '3.8'
-
 services:
   # -----------------------------
-  # PostgreSQL
-  # -----------------------------
-  postgres:
-    image: postgres:16-alpine
-    container_name: fabric-postgres
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-fabric}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-fabric_registry}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./database/init:/docker-entrypoint-initdb.d
-    networks:
-      - fabric-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fabric} -d ${POSTGRES_DB:-fabric_registry} -h localhost -p 5432"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # -----------------------------
-  # SINGLE Redis Stack (server + insight + persistence + ACL)
-  # -----------------------------
-  redis-stack:
-    image: redis/redis-stack:latest
-    container_name: fabric-redis
-    restart: unless-stopped
-
-    ports:
-      - "127.0.0.1:6379:6379"   # Redis
-      - "127.0.0.1:8001:8001"   # RedisInsight
-
-    volumes:
-      # persistent data INSIDE docker volume (not random host paths)      
-      - fabric_redis_data:/data
-      - ./config/redis/users.acl:/data/acl-bootstrap.redis:ro
-    environment:
-      # durability + ACL in one place
-      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/acl-bootstrap.redis
-
-    healthcheck:
-      test: ["CMD","redis-cli", "ping"]
-      interval: 10s
-      timeout: 10s
-      retries: 12
-      start_period: 40s
-
-    networks:
-      - fabric-network
-
-    deploy:
-      resources:
-        limits:
-          cpus: "2"
-          memory: 2G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
-
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "100m"
-        max-file: "3"
-
-  # -----------------------------
-  # Fabric MCP Gateway
+  # Fabric MCP Gateway (external Postgres + external Redis)
   # -----------------------------
   fabric-gateway:
     build: .
@@ -79,16 +10,16 @@ services:
     environment:
       - FABRIC_TRANSPORT=${FABRIC_TRANSPORT:-http}
       - FABRIC_PORT=${FABRIC_PORT:-8000}
-      - FABRIC_ADMIN_KEY=${FABRIC_ADMIN_KEY}
+      - FABRIC_ADMIN_KEY=${FABRIC_ADMIN_KEY:?FABRIC_ADMIN_KEY is required}
       - FABRIC_CONFIG=${FABRIC_CONFIG:-agents.yaml}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
 
-      # Postgres (service name works on docker network)
-      - DATABASE_URL=${DATABASE_URL:-postgresql://fabric:fabric_a2a_mcp_aetherpro_2026@postgres:5432/fabric_registry}
+      # External Postgres
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - USE_POSTGRES=${USE_POSTGRES:-true}
 
-      # REDIS — critical: use SERVICE NAME, not localhost
-      - REDIS_URL=${REDIS_URL:-redis://redis-stack:6379}
+      # External Redis
+      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
 
       - ENABLE_METRICS=${ENABLE_METRICS:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -98,12 +29,6 @@ services:
     volumes:
       - ./agents.yaml:/app/agents.yaml:ro
       - ./logs:/app/logs
-
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis-stack:
-        condition: service_healthy
 
     networks:
       - fabric-network
@@ -162,10 +87,6 @@ services:
       - prometheus
 
 volumes:
-  postgres_data:
-    driver: local
-  fabric_redis_data:
-    driver: local
   prometheus_data:
     driver: local
   grafana_data:

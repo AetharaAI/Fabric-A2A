@@ -65,9 +65,9 @@ class MemoryConfig:
     semantic_memory_backend: StorageBackend = StorageBackend.FILE
 
     # === CONNECTION STRINGS (for production backends) ===
-    redis_url: Optional[str] = "redis://localhost:6379/0"
-    postgres_url: Optional[str] = "postgresql://localhost:5432/aether_checkpoints"
-    weaviate_url: Optional[str] = "http://localhost:8080"
+    redis_url: Optional[str] = "redis://100.87.16.38:6379/0"
+    postgres_url: Optional[str] = "postgresql://fabric:fabric_fabic_a2a_mcp_aetherpro_2026@100.87.16.38:5440/aether_checkpoints"
+    weaviate_url: Optional[str] = "http://100.87.16.38:8080"
 
     # === FILE BACKEND PATHS (for development) ===
     checkpoint_dir: str = "./checkpoints"

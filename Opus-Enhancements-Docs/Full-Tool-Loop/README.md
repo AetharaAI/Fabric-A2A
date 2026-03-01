@@ -147,9 +147,9 @@ from aether_checkpoint.config import StorageBackend
 config.working_memory_backend = StorageBackend.REDIS
 config.episodic_memory_backend = StorageBackend.POSTGRES
 config.semantic_memory_backend = StorageBackend.WEAVIATE
-config.redis_url = "redis://localhost:6379/0"
-config.postgres_url = "postgresql://localhost:5432/aether_checkpoints"
-config.weaviate_url = "http://localhost:8080"
+config.redis_url = "redis://:uap_gmccmg_aethercore2025@100.87.16.38:6379/0"
+config.postgres_url = "postgresql://fabric:fabric_fabic_a2a_mcp_aetherpro_2026@100.87.16.38:5440/aether_checkpoints"
+config.weaviate_url = "http://100.87.16.38:8080"
 ```
 
 ---

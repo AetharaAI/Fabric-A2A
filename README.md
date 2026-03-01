@@ -156,7 +156,7 @@ pip install -r requirements.txt
 # Set environment variables
 export REDIS_URL="redis://localhost:6379"
 export DATABASE_URL="postgresql://user:pass@localhost:5432/fabric"
-export MASTER_SECRET="your-secret"
+export FABRIC_ADMIN_KEY="fab_admin_$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 ```
 
 ### Running
@@ -168,6 +168,15 @@ python server.py --transport http --port 8000
 # Start with stdio transport
 python server.py --transport stdio
 ```
+
+### API Key Bootstrap
+
+```bash
+cd fabric
+python3 bootstrap.py
+```
+
+`bootstrap.py` initializes the `fabric_api_keys` table and prints your first `fab_sk_live_...` key plus a development test key.
 
 ## MCP Tools Reference
 
@@ -220,7 +229,7 @@ Agents register via the MCP protocol:
 
 ```bash
 curl -X POST http://localhost:8000/mcp/register_agent \
-  -H "Authorization: Bearer $MASTER_SECRET" \
+  -H "Authorization: Bearer $FABRIC_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-agent",

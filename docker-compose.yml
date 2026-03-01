@@ -79,7 +79,7 @@ services:
     environment:
       - FABRIC_TRANSPORT=${FABRIC_TRANSPORT:-http}
       - FABRIC_PORT=${FABRIC_PORT:-8000}
-      - FABRIC_PSK=${FABRIC_PSK:-dev-shared-secret}
+      - FABRIC_ADMIN_KEY=${FABRIC_ADMIN_KEY}
       - FABRIC_CONFIG=${FABRIC_CONFIG:-agents.yaml}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
 

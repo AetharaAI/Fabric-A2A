@@ -7,6 +7,7 @@ Production-grade MCP server for agent communication using MCP as the interface.
 import asyncio
 import json
 import logging
+import os
 import re
 import sys
 import time
@@ -19,6 +20,8 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel, Field
+from auth import FabricAuth
+from admin_routes import create_admin_router
 
 # Import built-in tools
 from tools.builtin_tools import (
@@ -77,6 +80,8 @@ logger = logging.getLogger(__name__)
 
 class AuthMode(str, Enum):
     PSK = "psk"
+    API_KEY = "api_key"
+    MASTER_KEY = "master_key"
     PASSPORT = "passport"
     MTLS = "mtls"
     NONE = "none"
@@ -518,10 +523,16 @@ class AuthService:
     """Authentication and authorization service"""
 
     def __init__(self, psk: Optional[str] = None):
-        self.psk = psk or "dev-shared-secret"  # Default for development
+        # Deprecated fallback path for non-HTTP flows.
+        self.psk = psk or os.getenv("FABRIC_PSK")
 
     def verify_psk(self, token: Optional[str]) -> AuthContext:
         """Verify pre-shared key"""
+        if not self.psk:
+            raise FabricError(
+                ErrorCode.AUTH_DENIED,
+                "PSK auth is not configured. Use API keys via Authorization: Bearer fab_sk_live_...",
+            )
         if not token:
             raise FabricError(ErrorCode.AUTH_DENIED, "No authentication token provided")
 
@@ -624,7 +635,7 @@ class FabricServer:
     def __init__(
         self,
         registry: AgentRegistry,
-        auth_service: AuthService,
+        auth_service: Optional[AuthService] = None,
         redis_url: Optional[str] = None,
         master_secret: Optional[str] = None,
     ):
@@ -668,6 +679,7 @@ class FabricServer:
         tool_name: str,
         arguments: Dict[str, Any],
         auth_token: Optional[str] = None,
+        auth_ctx: Optional[AuthContext] = None,
     ) -> Dict[str, Any]:
         """Handle MCP tool call"""
         trace = TraceContext.create(
@@ -677,7 +689,11 @@ class FabricServer:
 
         try:
             # Authenticate
-            auth_ctx = self.auth_service.verify_psk(auth_token)
+            if auth_ctx is None:
+                if self.auth_service:
+                    auth_ctx = self.auth_service.verify_psk(auth_token)
+                else:
+                    auth_ctx = AuthContext(mode=AuthMode.NONE, principal_id="system")
 
             # Route to appropriate handler
             if tool_name == "fabric.agent.list":
@@ -1486,19 +1502,81 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
     """Create FastAPI application for HTTP transport"""
     app = FastAPI(title="Fabric MCP Server", version=fabric.version)
 
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL must be set to enable Fabric API key authentication."
+        )
+
+    auth = FabricAuth(
+        database_url=database_url,
+        master_key=os.getenv("FABRIC_ADMIN_KEY"),
+    )
+    app.state.fabric_auth = auth
+
+    admin_router = create_admin_router(auth)
+    app.include_router(admin_router, prefix="/admin", tags=["API Keys"])
+
+    @app.on_event("startup")
+    async def startup():
+        await auth.initialize()
+
+    @app.on_event("shutdown")
+    async def shutdown():
+        await auth.close()
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        return await auth.middleware(request, call_next)
+
+    def _request_auth_context(request: Request) -> AuthContext:
+        auth_result = getattr(request.state, "auth", None)
+        if not auth_result or not auth_result.authenticated:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        if auth_result.method == "master_key":
+            return AuthContext(
+                mode=AuthMode.MASTER_KEY,
+                principal_id="system",
+                key_id="master",
+            )
+
+        api_key = auth_result.api_key
+        if auth_result.method == "api_key" and api_key:
+            return AuthContext(
+                mode=AuthMode.API_KEY,
+                principal_id=api_key.owner_id,
+                key_id=api_key.id,
+            )
+
+        return AuthContext(mode=AuthMode.NONE, principal_id="unknown")
+
+    def _require_admin(request: Request):
+        auth_result = getattr(request.state, "auth", None)
+        if not auth_result or not auth_result.authenticated:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+
+        if auth_result.method == "master_key":
+            return
+
+        api_key = auth_result.api_key
+        if api_key and getattr(api_key.scope, "value", None) == "admin":
+            return
+
+        raise HTTPException(status_code=403, detail="Admin scope required")
+
     @app.post("/mcp/call")
     async def mcp_call(request: Request):
         """MCP tool call endpoint"""
         body = await request.json()
         tool_name = body.get("name")
         arguments = body.get("arguments", {})
-        auth_token = request.headers.get("Authorization", "").replace("Bearer ", "")
+        auth_ctx = _request_auth_context(request)
 
         # Check if streaming is requested
         if arguments.get("stream"):
             trace = TraceContext.create()
             try:
-                auth_ctx = fabric.auth_service.verify_psk(auth_token)
                 return StreamingResponse(
                     fabric._handle_call_stream(arguments, trace, auth_ctx),
                     media_type="text/event-stream",
@@ -1506,17 +1584,14 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
             except FabricError as e:
                 return e.to_dict(trace)
 
-        result = await fabric.handle_tool_call(tool_name, arguments, auth_token)
+        result = await fabric.handle_tool_call(tool_name, arguments, auth_ctx=auth_ctx)
         return result
 
     @app.post("/mcp/register_agent")
     async def register_agent(request: Request):
         """Register a new agent"""
         body = await request.json()
-        master_token = request.headers.get("Authorization", "").replace("Bearer ", "")
-
-        if master_token != fabric.master_secret:
-            raise HTTPException(status_code=403, detail="Invalid master secret")
+        _require_admin(request)
 
         result = await fabric._handle_register_agent(body)
         return result
@@ -1524,9 +1599,6 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
     @app.get("/mcp/list_agents")
     async def list_agents(request: Request):
         """List all registered agents"""
-        auth_token = request.headers.get("Authorization", "").replace("Bearer ", "")
-
-        # Allow access with any valid agent secret or master secret
         agents = fabric.agent_store.list_agents()
         return {"agents": agents}
 
@@ -1604,8 +1676,10 @@ async def stdio_server(fabric: FabricServer):
             request = json.loads(line)
             tool_name = request.get("name")
             arguments = request.get("arguments", {})
-
-            result = await fabric.handle_tool_call(tool_name, arguments)
+            auth_ctx = AuthContext(mode=AuthMode.NONE, principal_id="stdio")
+            result = await fabric.handle_tool_call(
+                tool_name, arguments, auth_ctx=auth_ctx
+            )
             print(json.dumps(result), flush=True)
 
         except Exception as e:
@@ -1680,7 +1754,6 @@ def load_registry_from_yaml(registry: AgentRegistry, yaml_path: str):
 async def main():
     """Main entry point"""
     import argparse
-    import os
 
     parser = argparse.ArgumentParser(description="Fabric MCP Server")
     parser.add_argument(
@@ -1695,7 +1768,10 @@ async def main():
     parser.add_argument(
         "--config", default="agents.yaml", help="Path to agents configuration YAML"
     )
-    parser.add_argument("--psk", help="Pre-shared key for authentication")
+    parser.add_argument(
+        "--psk",
+        help="Deprecated fallback pre-shared key (used only outside HTTP middleware flows).",
+    )
     parser.add_argument(
         "--redis-url",
         default=os.getenv("REDIS_URL"),
@@ -1706,8 +1782,13 @@ async def main():
 
     # Initialize components
     registry = AgentRegistry()
-    auth_service = AuthService(psk=args.psk)
-    fabric = FabricServer(registry, auth_service, redis_url=args.redis_url)
+    auth_service = AuthService(psk=args.psk) if args.psk else None
+    fabric = FabricServer(
+        registry,
+        auth_service=auth_service,
+        redis_url=args.redis_url,
+        master_secret=os.getenv("FABRIC_ADMIN_KEY") or os.getenv("MASTER_SECRET"),
+    )
 
     # Load agents from config
     try:

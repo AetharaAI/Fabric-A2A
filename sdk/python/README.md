@@ -35,7 +35,7 @@ from fabric_a2a import FabricClient
 # Initialize
 client = FabricClient(
     base_url="https://fabric.perceptor.us",
-    token="your-auth-token"
+    token="fab_sk_live_your_api_key"
 )
 
 # List available tools
@@ -70,7 +70,7 @@ from fabric_a2a import AsyncFabricClient
 async def main():
     async with AsyncFabricClient(
         base_url="https://fabric.perceptor.us",
-        token="your-auth-token"
+        token="fab_sk_live_your_api_key"
     ) as client:
         # Concurrent calls
         results = await asyncio.gather(
@@ -152,7 +152,7 @@ For agents that support streaming:
 ```python
 from fabric_a2a import FabricClient, StreamingResult
 
-client = FabricClient(base_url="https://fabric.perceptor.us", token="token")
+client = FabricClient(base_url="https://fabric.perceptor.us", token="fab_sk_live_your_api_key")
 
 result = StreamingResult()
 
@@ -176,7 +176,7 @@ async def on_token(text):
 
 await stream_sse(
     url="https://fabric.perceptor.us/mcp/call",
-    headers={"Authorization": "Bearer token"},
+    headers={"Authorization": "Bearer fab_sk_live_your_api_key"},
     payload={"name": "fabric.call", "arguments": {...}},
     on_token=on_token
 )
@@ -187,7 +187,7 @@ await stream_sse(
 ```python
 from fabric_a2a import FabricClient, FabricError, AgentNotFoundError
 
-client = FabricClient(base_url="https://fabric.perceptor.us", token="token")
+client = FabricClient(base_url="https://fabric.perceptor.us", token="fab_sk_live_your_api_key")
 
 try:
     result = client.agents.call("unknown-agent", "reason", "test")
@@ -204,7 +204,7 @@ except FabricError as e:
 
 ```bash
 export FABRIC_URL="https://fabric.perceptor.us"
-export FABRIC_TOKEN="your-token"
+export FABRIC_TOKEN="fab_sk_live_your_api_key"
 ```
 
 ### Pydantic Models
@@ -232,7 +232,7 @@ from fabric_a2a import WebSocketClient
 async def ws_example():
     ws = WebSocketClient(
         url="ws://fabric.example.com/ws",
-        token="your-token"
+        token="fab_sk_live_your_api_key"
     )
     await ws.connect()
 

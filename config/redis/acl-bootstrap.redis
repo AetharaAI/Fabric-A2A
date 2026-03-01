@@ -1,0 +1,14 @@
+ACL SETUSER default on nopass +@all +@admin
+
+ACL SETUSER fabric_admin on >admin_secure_password_123 ~* +@all
+ACL SETUSER fabric_gateway on >gateway_system_password_xyz +@stream +@pubsub +@connection ~deadletter:*
+ACL SETUSER fabric_mcp on >mcp_system_password_456 +@stream +@pubsub +@connection
+ACL SETUSER percy on >percy_agent_secret_789 +@stream +@pubsub +@connection &agent.percy.* &shared.broadcast &shared.direct.percy
+ACL SETUSER coder on >coder_agent_secret_abc +@stream +@pubsub +@connection &agent.coder.* &shared.broadcast &shared.direct.coder
+ACL SETUSER memory on >memory_agent_secret_def +@stream +@pubsub +@connection &agent.memory.* &shared.broadcast &shared.direct.memory
+ACL SETUSER vision on >vision_agent_secret_ghi +@stream +@pubsub +@connection &agent.vision.* &shared.broadcast &shared.direct.vision
+ACL SETUSER monitoring on >monitoring_readonly_123 +@read +@pubsub &metrics.* &shared.broadcast
+ACL SETUSER deadletter on >deadletter_service_999 +@stream +@read +@write ~deadletter:* &deadletter:*
+
+ACL SETUSER default off
+ACL SAVE

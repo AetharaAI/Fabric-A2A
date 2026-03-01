@@ -38,10 +38,10 @@ services:
     volumes:
       # persistent data INSIDE docker volume (not random host paths)      
       - fabric_redis_data:/data
-      - ./config/redis/users.acl:/data/users.acl:ro
+      - ./config/redis/users.acl:/data/acl-bootstrap.redis:ro
     environment:
       # durability + ACL in one place
-      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/users.acl
+      - REDIS_ARGS=--appendonly yes --appendfsync everysec --aclfile /data/acl-bootstrap.redis
 
     healthcheck:
       test: ["CMD","redis-cli", "ping"]

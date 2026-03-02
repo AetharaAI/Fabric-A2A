@@ -44,7 +44,7 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
     logger = logging.getLogger(__name__)
-    logger.warning("Redis not available - A2A messaging disabled")
+    logger.warning("Redis import failed - A2A messaging disabled", exc_info=True)
 
 # Load tool plugins on startup
 BaseTool.load_plugins("tools/plugins")
@@ -641,6 +641,11 @@ class FabricServer:
     ):
         self.registry = registry
         self.auth_service = auth_service
+        self.redis_url = redis_url or os.getenv("REDIS_URL")
+        self.redis_required = (
+            os.getenv("FABRIC_REDIS_REQUIRED", "false").strip().lower()
+            in {"1", "true", "yes", "on"}
+        )
         self.start_time = time.time()
         self.version = "af-mcp-0.1"
         self.master_secret = master_secret or "master-secret-change-in-production"
@@ -662,17 +667,51 @@ class FabricServer:
         # Initialize A2A message bus (if Redis available)
         self.message_bus = None
         self.message_mcp = None
-        if REDIS_AVAILABLE and redis_url:
+        if REDIS_AVAILABLE and self.redis_url:
             try:
-                import asyncio
-
-                self.message_bus = FabricMessageBus(redis_url=redis_url)
+                self.message_bus = FabricMessageBus(redis_url=self.redis_url)
                 self.message_mcp = FabricMessageBusMCP(self.message_bus)
-                logger.info(f"A2A Message Bus initialized: {redis_url}")
+                logger.info("A2A Message Bus client initialized")
             except Exception as e:
                 logger.error(f"Failed to initialize message bus: {e}")
                 self.message_bus = None
                 self.message_mcp = None
+        elif not self.redis_url:
+            logger.warning("REDIS_URL not set - A2A messaging disabled")
+        else:
+            logger.warning(
+                "Redis client unavailable in runtime - A2A messaging disabled"
+            )
+
+    async def verify_message_bus(self):
+        """
+        Perform startup connectivity check for Redis message bus.
+        Set FABRIC_REDIS_REQUIRED=true to fail startup when Redis is unavailable.
+        """
+        if not self.redis_url:
+            return
+
+        if not self.message_bus:
+            msg = "A2A Redis client unavailable; fabric.message.* endpoints are disabled."
+            if self.redis_required:
+                raise RuntimeError(msg)
+            logger.warning(msg)
+            return
+
+        ok = await self.message_bus.ping()
+        if ok:
+            logger.info(f"A2A Redis connectivity verified: {self.redis_url}")
+            return
+
+        msg = (
+            f"A2A Redis connectivity failed: {self.redis_url}. "
+            "fabric.message.* endpoints will be disabled."
+        )
+        if self.redis_required:
+            raise RuntimeError(msg)
+        logger.error(msg)
+        self.message_bus = None
+        self.message_mcp = None
 
     async def handle_tool_call(
         self,
@@ -1520,6 +1559,7 @@ def create_http_app(fabric: FabricServer) -> FastAPI:
     @app.on_event("startup")
     async def startup():
         await auth.initialize()
+        await fabric.verify_message_bus()
 
     @app.on_event("shutdown")
     async def shutdown():

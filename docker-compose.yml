@@ -5,22 +5,16 @@ services:
   fabric-gateway:
     build: .
     container_name: fabric-mcp-server
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
       - FABRIC_TRANSPORT=${FABRIC_TRANSPORT:-http}
       - FABRIC_PORT=${FABRIC_PORT:-8000}
-      - FABRIC_ADMIN_KEY=${FABRIC_ADMIN_KEY:?FABRIC_ADMIN_KEY is required}
       - FABRIC_CONFIG=${FABRIC_CONFIG:-agents.yaml}
       - BRAVE_API_KEY=${BRAVE_API_KEY}
-
-      # External Postgres
-      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - USE_POSTGRES=${USE_POSTGRES:-true}
-
-      # External Redis
-      - REDIS_URL=${REDIS_URL:?REDIS_URL is required}
-
       - ENABLE_METRICS=${ENABLE_METRICS:-true}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}

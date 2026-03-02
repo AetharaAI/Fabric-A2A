@@ -168,6 +168,14 @@ class PostgresKeyStore:
     async def initialize(self):
         """Create table and indexes if they don't exist"""
         import asyncpg
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.database_url)
+        logger.info(
+            f"FabricAuth: Connecting to PostgreSQL host={parsed.hostname} "
+            f"port={parsed.port} db={(parsed.path or '').lstrip('/')}"
+        )
+
         self._pool = await asyncpg.create_pool(
             self.database_url,
             min_size=2,

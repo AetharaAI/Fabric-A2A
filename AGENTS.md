@@ -5,15 +5,26 @@ This repository is the Fabric-A2A backend for MCPFabric.
 
 Primary agent responsibility on this VM:
 - own the backend contract and production behavior for Fabric
-- preserve working auth, key issuance, tool calls, and A2A message flows
-- support MCPFabric frontend integration without destabilizing production
+- preserve working auth, key issuance, MCP execution, and A2A message flows
+- support the MCPFabric frontend without destabilizing production
+- keep canonical project docs current whenever backend truth changes
 
-This backend was originally coded and iterated by Codex. The frontend was created by Manus AI and is being converted to match this backend.
+This backend was originally coded and iterated by Codex. The MCPFabric frontend was originally created by Manus AI and is being aligned to this backend.
 
 ## Environment
 - Backend repo root: `/home/ubuntu/fabric/mcp-modular/Fabric-A2A`
-- Live backend URL: `https://fabric.perceptor.us`
+- Public API URL: `https://fabric.perceptor.us`
 - Frontend URL consuming this backend: `https://mcpfabric.space`
+- Frontend repo root: `/home/ubuntu/mcp-fabric-site/MCPFabric`
+- GitHub repo: `git@github.com:AetharaAI/Fabric-A2A.git`
+
+## Infra Truth
+- Provider: OVHcloud Public Cloud
+- Region: Oregon, US
+- Instance type for this node: `b3-32`
+- Tailscale mesh IP for this node: `100.126.206.81`
+- Program: OVHcloud AI Accelerator Program
+- Program tier: Scale tier as of early February 2026
 
 ## Current Mission
 Keep Fabric-A2A stable as the live source of truth for:
@@ -22,17 +33,29 @@ Keep Fabric-A2A stable as the live source of truth for:
 - MCP tool invocation
 - A2A message bus operations
 - queue inspection
-- eventually browser-safe observability and streaming support
+- frontend-safe browser integration
+- future async observability and agent identity enhancements
 
 ## Working Rules
 - Do not change successful production behavior casually.
-- When frontend issues appear, confirm whether they are:
-  - contract mismatch
-  - browser/CORS mismatch
-  - UI-only defect
-- Preserve the curl-smoke-tested behaviors before refactoring.
-- Avoid backend edits until the frontend proves a real backend gap.
-- Never weaken auth just to make the frontend easier.
+- Confirm whether a frontend issue is a contract gap, browser/CORS issue, or UI defect before editing the backend.
+- Preserve smoke-tested curl behaviors before refactoring.
+- Never weaken auth to compensate for UI assumptions.
+- Commit backend truth before doing branch merges.
+
+## Canonical Docs
+These files are canonical truth and must be updated when production state changes materially:
+- `AGENTS.md`
+- `PROJECT_STATE.md`
+- `CHANGELOG.md`
+- `TRUTH.md`
+
+Template references for reuse across other systems live in:
+- `TRUTH/README.md`
+- `TRUTH/AGENTS.template.md`
+- `TRUTH/PROJECT_STATE.template.md`
+- `TRUTH/CHANGELOG.template.md`
+- `TRUTH/TRUTH.template.md`
 
 ## Known Production Facts
 - admin verify works
@@ -41,23 +64,20 @@ Keep Fabric-A2A stable as the live source of truth for:
 - `/mcp/call` works for standard tool execution
 - `/mcp/call` works for `fabric.message.send`
 - `/mcp/call` works for `fabric.message.queue_status`
-- browser CORS/preflight is now configured for `https://mcpfabric.space`
+- browser CORS/preflight is configured for `https://mcpfabric.space`
+- the backend feature branch `mcp-modular` was merged into `main`
+- both `main` and `mcp-modular` were pushed to origin
 
-## Backend Contract Notes
+## Contract Notes
 - `/admin/verify` is the primary auth verification endpoint
 - `/admin/keys` supports create/list/revoke
-- `/mcp/call` currently accepts plain payloads like:
-  - `{ "name": "fabric.tool.math.calculate", "arguments": { ... } }`
-  - `{ "name": "fabric.message.send", "arguments": { ... } }`
-  - `{ "name": "fabric.message.queue_status", "arguments": { ... } }`
+- `/mcp/call` accepts plain payloads like `{ "name": "...", "arguments": { ... } }`
+- browser preflight for protected endpoints must succeed before auth logic runs
 
-## Documentation Discipline
-Keep these files updated when backend state changes materially:
-- `AGENTS.md`
-- `PROJECT_STATE.md`
-- `CHANGELOG.md`
-
-## Coordination Notes
-- Frontend repo: `/home/ubuntu/mcp-fabric-site/MCPFabric`
-- Browser issues that do not reproduce in curl are likely CORS/preflight first, then payload shape.
-- Prefer minimal, explicit CORS allowances over broad permissive settings.
+## Standard Workflow
+1. verify runtime behavior with curl or browser-safe checks
+2. patch backend only when needed
+3. update canonical docs
+4. restart/rebuild only as required
+5. verify live responses
+6. commit and push from a clean branch/worktree

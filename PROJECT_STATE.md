@@ -4,9 +4,10 @@
 - Name: Fabric-A2A backend
 - Root: `/home/ubuntu/fabric/mcp-modular/Fabric-A2A`
 - Public API URL: `https://fabric.perceptor.us`
+- GitHub: `git@github.com:AetharaAI/Fabric-A2A.git`
 
-## Current Status
-Backend core production behaviors are working.
+## Production Status
+Backend is live, working, and branch-aligned.
 
 Verified working:
 - admin auth verification
@@ -15,30 +16,37 @@ Verified working:
 - standard `/mcp/call` tool execution
 - `fabric.message.send`
 - `fabric.message.queue_status`
+- browser-safe preflight for protected endpoints needed by MCPFabric
 
-Current blocking issue for MCPFabric browser UI:
-- CORS/preflight was blocking the browser and has now been fixed in the backend runtime
-- browser-style `OPTIONS` for `/admin/verify` and `/mcp/call` now return `200 OK`
-- authorized cross-origin success responses now include `Access-Control-Allow-Origin: https://mcpfabric.space`
+## Branch And Publish Status
+- `mcp-modular` was the long-running feature branch carrying the platform expansion
+- `mcp-modular` was merged into `main`
+- merged `main` was pushed to `origin`
+- updated `mcp-modular` was also pushed to `origin`
+
+## Runtime Browser Integration Reality
+- CORS/preflight was a real backend mismatch exposed by the frontend
+- `OPTIONS` for `/admin/verify` and `/mcp/call` now return success
+- authorized cross-origin responses now include `Access-Control-Allow-Origin: https://mcpfabric.space`
+- MCPFabric browser operator flows can now talk to the backend across origins
 
 ## Smoke-Test Reference
-External note maintained outside repos:
-- `/home/ubuntu/mcp-fabric-site/smoke-test.md`
+- external note kept outside repos: `/home/ubuntu/mcp-fabric-site/smoke-test.md`
 
-Important smoke-tested sequence:
+Important tested sequence:
 1. verify admin key
 2. create production gateway/client key
 3. verify scoped client key
-4. call `fabric.tool.math.calculate`
+4. call a standard tool
 5. call `fabric.message.send`
 6. call `fabric.message.queue_status`
 
-## Current Integration Reality
-- Frontend `/api-keys` and `/playground` were updated to align with backend behavior.
-- Frontend deploy is live on `mcpfabric.space`.
-- Primary remaining work is frontend-side live async/observability conversion.
+## Current Relationship To MCPFabric
+- `/api-keys` and `/playground` in MCPFabric are aligned with backend behavior
+- Console was converted away from mock activity to real operator-side interactions
+- the remaining major frontend work is live observability and registry truth, not backend auth/key parity
 
-## Next Recommended Backend Work
-1. Validate browser flows from `mcpfabric.space` against the live backend.
-2. Verify additional endpoints used next also return correct CORS behavior.
-3. Help frontend wire real async streaming/observability if needed.
+## Remaining Backend Work
+- formalize backend-side Passport identity binding for audits if required
+- expose any missing async observability endpoints only when the frontend has a concrete data-plane shape
+- keep SDK and platform docs trimmed and accurate as the platform stabilizes

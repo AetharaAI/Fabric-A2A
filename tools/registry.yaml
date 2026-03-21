@@ -1,0 +1,156 @@
+# Fabric Tool Registry
+# 
+# This file registers tools for the Fabric MCP server.
+# Tools are loaded from plugins/ directory based on these entries.
+#
+# To add a new tool:
+# 1. Create a tool class in tools/plugins/ (use TEMPLATE.py as starting point)
+# 2. Add an entry here matching the TOOL_ID
+# 3. Restart Fabric - no core code changes needed!
+
+tools:
+  # ============================================================================
+  # BUILT-IN TOOLS (io, web, math, text, system, data, security)
+  # These are loaded from tools/plugins/builtin_*.py
+  # ============================================================================
+  
+  # --- I/O Tools ---
+  - tool_id: io.read_file
+    provider: builtin
+    category: io
+    description: Read contents of a text file
+    
+  - tool_id: io.write_file
+    provider: builtin
+    category: io
+    description: Write content to a file
+    
+  - tool_id: io.list_directory
+    provider: builtin
+    category: io
+    description: List files and directories
+    
+  - tool_id: io.search_files
+    provider: builtin
+    category: io
+    description: Search file contents using regex
+    
+  # --- Web Tools ---
+  - tool_id: web.http_request
+    provider: builtin
+    category: web
+    description: Make HTTP requests to any URL
+    
+  - tool_id: web.fetch_page
+    provider: builtin
+    category: web
+    description: Fetch and extract readable content from web pages
+    
+  - tool_id: web.parse_url
+    provider: builtin
+    category: web
+    description: Parse and extract components from URLs
+    
+  - tool_id: web.brave_search
+    provider: builtin
+    category: web
+    description: Live web search using Brave API
+    config:
+      # API key loaded from env var BRAVE_API_KEY
+      # Set this in your .env file
+      
+  # --- Math Tools ---
+  - tool_id: math.calculate
+    provider: builtin
+    category: math
+    description: Perform mathematical calculations safely
+    
+  - tool_id: math.statistics
+    provider: builtin
+    category: math
+    description: Calculate statistical measures on datasets
+    
+  # --- Text Tools ---
+  - tool_id: text.regex
+    provider: builtin
+    category: text
+    description: Pattern matching and text extraction with regex
+    
+  - tool_id: text.transform
+    provider: builtin
+    category: text
+    description: Text transformations (case, truncate, replace, etc)
+    
+  - tool_id: text.diff
+    provider: builtin
+    category: text
+    description: Compare two texts and show differences
+    
+  # --- System Tools ---
+  - tool_id: system.execute
+    provider: builtin
+    category: system
+    trust_tier: local
+    description: Execute shell commands safely
+    
+  - tool_id: system.env
+    provider: builtin
+    category: system
+    description: Get environment variables
+    
+  - tool_id: system.datetime
+    provider: builtin
+    category: system
+    description: Get current time, format dates
+    
+  # --- Data Tools ---
+  - tool_id: data.json
+    provider: builtin
+    category: data
+    description: Parse and query JSON
+    
+  - tool_id: data.csv
+    provider: builtin
+    category: data
+    description: Parse CSV to array of objects
+    
+  - tool_id: data.validate
+    provider: builtin
+    category: data
+    description: Validate data against JSON Schema
+    
+  # --- Security Tools ---
+  - tool_id: security.hash
+    provider: builtin
+    category: security
+    description: Generate cryptographic hashes
+    
+  - tool_id: security.base64
+    provider: builtin
+    category: security
+    description: Encode/decode base64
+    
+  # --- Encoding Tools ---
+  - tool_id: encode.url
+    provider: builtin
+    category: encoding
+    description: URL encode/decode strings
+    
+  # --- Documentation Tools ---
+  - tool_id: docs.markdown
+    provider: builtin
+    category: docs
+    description: Convert Markdown to HTML and extract structure
+
+  # ============================================================================
+  # CUSTOM TOOLS (User Extensions)
+  # Add your custom tools here after creating them in tools/plugins/custom/
+  # ============================================================================
+  
+  # Example:
+  # - tool_id: weather.get_forecast
+  #   provider: custom
+  #   category: integration
+  #   description: Get weather forecast for a location
+  #   config:
+  #     api_key: ${WEATHER_API_KEY}  # Loaded from environment

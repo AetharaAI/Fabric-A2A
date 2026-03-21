@@ -16,6 +16,7 @@ services:
       - BRAVE_API_KEY=${BRAVE_API_KEY}
       - USE_POSTGRES=${USE_POSTGRES:-true}
       - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - DATABASE_URL=postgresql://fabric:fabric_fabric_a2a_mcp_aetherpro_2026@100.87.16.38:5440/fabric_registry
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-*}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}

@@ -393,6 +393,10 @@ class FabricAuth:
         """FastAPI middleware — attach to app with @app.middleware('http')"""
         path = request.url.path
 
+        # Let browser preflight reach the CORS middleware/route layer untouched.
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
+
         # Always allow public paths
         if path in PUBLIC_PATHS or path.startswith("/docs") or path.startswith("/redoc"):
             return await call_next(request)

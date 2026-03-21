@@ -18,6 +18,7 @@ from enum import Enum
 from typing import Any, AsyncIterator, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, Response, RedirectResponse
 from pydantic import BaseModel, Field
 from auth import FabricAuth
@@ -1540,6 +1541,22 @@ class FabricServer:
 def create_http_app(fabric: FabricServer) -> FastAPI:
     """Create FastAPI application for HTTP transport"""
     app = FastAPI(title="Fabric MCP Server", version=fabric.version)
+
+    cors_origins_raw = os.getenv(
+        "CORS_ORIGINS",
+        "https://mcpfabric.space,https://www.mcpfabric.space",
+    )
+    cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+    allow_all_origins = "*" in cors_origins
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"] if allow_all_origins else cors_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "Origin"],
+        expose_headers=["WWW-Authenticate"],
+    )
 
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
